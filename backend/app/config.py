@@ -12,10 +12,6 @@ load_dotenv()
 class Config:
     """Application configuration"""
     
-    # BlockCypher
-    BLOCKCYPHER_API_TOKEN: str = os.getenv("BLOCKCYPHER_API_TOKEN", "")
-    BLOCKCYPHER_NETWORK: str = os.getenv("BLOCKCYPHER_NETWORK", "test3")
-    
     # House Wallet - CRITICAL: Never commit real keys
     HOUSE_PRIVATE_KEY: str = os.getenv("HOUSE_PRIVATE_KEY", "")
     HOUSE_ADDRESS: str = os.getenv("HOUSE_ADDRESS", "")
@@ -26,7 +22,7 @@ class Config:
     
     # Game Settings
     HOUSE_EDGE: float = float(os.getenv("HOUSE_EDGE", "0.02"))
-    MIN_BET_SATOSHIS: int = int(os.getenv("MIN_BET_SATOSHIS", "10000"))
+    MIN_BET_SATOSHIS: int = int(os.getenv("MIN_BET_SATOSHIS", "600"))  # ~$0.30 at $50k BTC
     MAX_BET_SATOSHIS: int = int(os.getenv("MAX_BET_SATOSHIS", "1000000"))
     MIN_MULTIPLIER: float = float(os.getenv("MIN_MULTIPLIER", "1.1"))
     MAX_MULTIPLIER: float = float(os.getenv("MAX_MULTIPLIER", "98.0"))
@@ -36,13 +32,9 @@ class Config:
     CONFIRMATIONS_REQUIRED: int = int(os.getenv("CONFIRMATIONS_REQUIRED", "1"))
     MIN_CONFIRMATIONS_PAYOUT: int = int(os.getenv("MIN_CONFIRMATIONS_PAYOUT", "0"))
     NETWORK: str = os.getenv("NETWORK", "testnet")
-    
-    # Transaction Detection
-    WEBHOOK_CALLBACK_URL: str = os.getenv("WEBHOOK_CALLBACK_URL", "")
-    POLLING_INTERVAL_SECONDS: int = int(os.getenv("POLLING_INTERVAL_SECONDS", "30"))
     TX_DETECTION_TIMEOUT_MINUTES: int = int(os.getenv("TX_DETECTION_TIMEOUT_MINUTES", "60"))
     
-    # Fallback APIs
+    # API Endpoints
     BLOCKSTREAM_API: str = os.getenv("BLOCKSTREAM_API", "https://blockstream.info/testnet/api")
     MEMPOOL_SPACE_API: str = os.getenv("MEMPOOL_SPACE_API", "https://mempool.space/testnet/api")
     
@@ -72,9 +64,6 @@ class Config:
     def validate(cls) -> bool:
         """Validate critical configuration"""
         errors = []
-        
-        if not cls.BLOCKCYPHER_API_TOKEN:
-            errors.append("BLOCKCYPHER_API_TOKEN is required")
         
         if not cls.HOUSE_PRIVATE_KEY and not cls.HOUSE_MNEMONIC:
             errors.append("Either HOUSE_PRIVATE_KEY or HOUSE_MNEMONIC is required")

@@ -154,7 +154,7 @@ class Transaction(Base):
     fee = Column(Integer, nullable=True)
     
     # Detection metadata
-    detected_by = Column(String(50), nullable=False)  # webhook, polling, fallback, user_submit
+    detected_by = Column(String(50), nullable=False)  # websocket, manual, api
     detection_count = Column(Integer, default=1)  # how many times we detected this
     
     # Blockchain status

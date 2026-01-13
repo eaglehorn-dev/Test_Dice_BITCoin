@@ -8,8 +8,6 @@ sqlalchemy==2.0.25
 alembic==1.13.1
 
 # Blockchain
-blockcypher==1.0.93
-requests==2.31.0
 bitcoinlib==0.6.14
 
 # Security & Crypto
@@ -24,6 +22,7 @@ apscheduler==3.10.4
 # API & HTTP
 httpx==0.26.0
 aiohttp==3.9.1
+websockets==12.0
 
 # Utilities
 python-multipart==0.0.6
@@ -33,7 +32,7 @@ email-validator==2.1.0
 fastapi-cors==0.0.6
 
 # Logging
-python-json-logger==2.0.7
+loguru==0.7.2
 
 # Testing (optional)
 pytest==7.4.4

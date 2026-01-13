@@ -4,13 +4,14 @@
   "description": "Provably Fair Bitcoin Dice Game - Frontend",
   "private": true,
   "dependencies": {
+    "@heroicons/react": "^2.1.1",
+    "axios": "^1.6.2",
+    "http-proxy-middleware": "^2.0.6",
+    "qrcode.react": "^4.2.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-router-dom": "^6.20.0",
-    "axios": "^1.6.2",
-    "web-vitals": "^3.5.0",
-    "@heroicons/react": "^2.1.1",
-    "http-proxy-middleware": "^2.0.6"
+    "web-vitals": "^3.5.0"
   },
   "scripts": {
     "start": "react-scripts start",

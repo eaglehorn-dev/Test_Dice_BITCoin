@@ -1,422 +1,226 @@
 import React, { useState, useEffect } from 'react';
-import { createDepositAddress, submitTransaction, getBet } from '../utils/api';
+import { QRCodeSVG } from 'qrcode.react';
 import './DiceGame.css';
 
-function DiceGame({ userAddress, userData }) {
-  const [multiplier, setMultiplier] = useState(2.0);
-  const [winChance, setWinChance] = useState(49.0);
-  const [betAmount, setBetAmount] = useState(10000);
-  const [depositAddress, setDepositAddress] = useState('');
-  const [showDeposit, setShowDeposit] = useState(false);
-  const [txid, setTxid] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [betResult, setBetResult] = useState(null);
-  const [polling, setPolling] = useState(false);
-  const [error, setError] = useState('');
-
-  const HOUSE_EDGE = 2.0;
+function DiceGame() {
+  const [copied, setCopied] = useState(false);
+  const [houseAddress, setHouseAddress] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [multipliers] = useState([
+    { value: 1.5, chance: 65.33 },
+    { value: 2.0, chance: 49.0 },
+    { value: 3.0, chance: 32.67 },
+    { value: 5.0, chance: 19.6 },
+    { value: 10.0, chance: 9.8 },
+    { value: 98.0, chance: 1.0 }
+  ]);
 
   useEffect(() => {
-    // Calculate win chance from multiplier
-    const calculatedWinChance = ((100 - HOUSE_EDGE) / multiplier);
-    setWinChance(parseFloat(calculatedWinChance.toFixed(2)));
-  }, [multiplier]);
-
-  const handleMultiplierChange = (value) => {
-    const newMultiplier = parseFloat(value);
-    if (newMultiplier >= 1.1 && newMultiplier <= 98) {
-      setMultiplier(newMultiplier);
-    }
-  };
-
-  const handleCreateBet = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      setBetResult(null);
-      
-      // Create deposit address
-      const response = await createDepositAddress(userAddress, multiplier);
-      const depositAddr = response.deposit_address;
-      
-      setDepositAddress(depositAddr);
-      
-      // If Unisat wallet is available, auto-send Bitcoin
-      if (window.unisat) {
-        try {
-          setError('Please approve the transaction in Unisat wallet...');
-          
-          // Switch to testnet if needed
-          try {
-            const network = await window.unisat.getNetwork();
-            if (network !== 'testnet') {
-              await window.unisat.switchNetwork('testnet');
-            }
-          } catch (networkErr) {
-            console.warn('Could not switch network:', networkErr);
-          }
-          
-          // Send Bitcoin using Unisat wallet
-          // Amount is in satoshis
-          const txid = await window.unisat.sendBitcoin(depositAddr, betAmount);
-          
-          setError('Transaction sent! Submitting to backend...');
-          setTxid(txid);
-          
-          // Auto-submit the transaction
-          const submitResponse = await submitTransaction(txid, depositAddr);
-          
-          if (submitResponse.success) {
-            setError('Waiting for confirmation and dice roll...');
-            // Start polling for bet result
-            startPolling(submitResponse.bet_id);
-          }
-        } catch (walletErr) {
-          // If auto-send fails, show manual deposit option
-          console.error('Auto-send failed:', walletErr);
-          
-          // Check if user rejected the transaction
-          if (walletErr.message && walletErr.message.includes('User rejected')) {
-            setError('Transaction cancelled. Click "Create Bet" again to retry, or send manually.');
-          } else {
-            setError(`Wallet error: ${walletErr.message || 'Unknown error'}. Please send manually.`);
-          }
-          
-          setShowDeposit(true);
-          setLoading(false);
-        }
-      } else {
-        // No wallet, show manual deposit instructions
-        setShowDeposit(true);
+    // Fetch house address from backend on load
+    fetch('/api/config/house-address')
+      .then(res => res.json())
+      .then(data => {
+        setHouseAddress(data.address);
         setLoading(false);
-      }
-    } catch (err) {
-      setError(err.message || 'Failed to create bet');
-      setLoading(false);
-    }
-  };
-
-  const handleSubmitTx = async () => {
-    if (!txid) {
-      setError('Please enter transaction ID');
-      return;
-    }
-
-    try {
-      setLoading(true);
-      setError('');
-      
-      const response = await submitTransaction(txid, depositAddress);
-      
-      if (response.success) {
-        // Start polling for bet result
-        startPolling(response.bet_id);
-      }
-    } catch (err) {
-      setError(err.message || 'Failed to submit transaction');
-      setLoading(false);
-    }
-  };
-
-  const startPolling = (betId) => {
-    setPolling(true);
-    
-    const pollInterval = setInterval(async () => {
-      try {
-        const bet = await getBet(betId);
-        
-        if (bet.roll_result !== null) {
-          // Bet has been rolled
-          setBetResult(bet);
-          setPolling(false);
-          setLoading(false);
-          clearInterval(pollInterval);
-          
-          // Reset form
-          setShowDeposit(false);
-          setTxid('');
-        }
-      } catch (err) {
-        console.error('Polling error:', err);
-      }
-    }, 3000); // Poll every 3 seconds
-
-    // Stop polling after 5 minutes
-    setTimeout(() => {
-      clearInterval(pollInterval);
-      if (polling) {
-        setPolling(false);
+      })
+      .catch(err => {
+        console.error('Failed to fetch house address:', err);
+        // Fallback to hardcoded address if API fails
+        setHouseAddress('bc1qq5tdg4c736l6vmqy6farsmv56texph7gv7h2ks');
         setLoading(false);
-        setError('Timeout waiting for bet result. Check your history.');
-      }
-    }, 300000);
-  };
+      });
+  }, []);
 
   const copyToClipboard = (text) => {
-    navigator.clipboard.writeText(text);
+    // Try modern clipboard API first (requires HTTPS or localhost)
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text)
+        .then(() => {
+          showCopiedMessage();
+        })
+        .catch(err => {
+          console.error('Clipboard API failed:', err);
+          fallbackCopy(text);
+        });
+    } else {
+      // Fallback for HTTP or older browsers
+      fallbackCopy(text);
+    }
   };
 
-  return (
-    <div className="dice-game slide-in">
-      <div className="game-container">
+  const fallbackCopy = (text) => {
+    // Create temporary textarea
+    const textarea = document.createElement('textarea');
+    textarea.value = text;
+    textarea.style.position = 'fixed';
+    textarea.style.opacity = '0';
+    document.body.appendChild(textarea);
+    
+    // Select and copy
+    textarea.select();
+    textarea.setSelectionRange(0, 99999); // For mobile
+    
+    try {
+      const successful = document.execCommand('copy');
+      if (successful) {
+        showCopiedMessage();
+      }
+    } catch (err) {
+      console.error('Fallback copy failed:', err);
+    }
+    
+    document.body.removeChild(textarea);
+  };
+
+  const showCopiedMessage = () => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (loading) {
+    return (
+      <div className="dice-game">
         <div className="game-card">
-          <h2>🎲 Roll the Dice</h2>
-          
-          {!showDeposit ? (
-            <>
-              <div className="game-settings">
-                <div className="setting-group">
-                  <label>Multiplier</label>
-                  <div className="input-with-slider">
-                    <input
-                      type="number"
-                      className="number-input"
-                      value={multiplier}
-                      onChange={(e) => handleMultiplierChange(e.target.value)}
-                      min="1.1"
-                      max="98"
-                      step="0.1"
-                    />
-                    <input
-                      type="range"
-                      className="slider"
-                      value={multiplier}
-                      onChange={(e) => handleMultiplierChange(e.target.value)}
-                      min="1.1"
-                      max="98"
-                      step="0.1"
-                    />
-                  </div>
-                  <div className="setting-info">
-                    {multiplier.toFixed(2)}x payout
-                  </div>
-                </div>
-
-                <div className="setting-group">
-                  <label>Win Chance</label>
-                  <div className="chance-display">
-                    <div className="chance-bar">
-                      <div 
-                        className="chance-fill"
-                        style={{ width: `${winChance}%` }}
-                      ></div>
-                    </div>
-                    <div className="chance-text">
-                      {winChance.toFixed(2)}%
-                    </div>
-                  </div>
-                  <div className="setting-info">
-                    Roll under {winChance.toFixed(2)} to win
-                  </div>
-                </div>
-
-                <div className="setting-group">
-                  <label>Bet Amount (satoshis)</label>
-                  <input
-                    type="number"
-                    className="number-input"
-                    value={betAmount}
-                    onChange={(e) => setBetAmount(parseInt(e.target.value))}
-                    min="10000"
-                    max="1000000"
-                    step="10000"
-                  />
-                  <div className="setting-info">
-                    {(betAmount / 100000000).toFixed(8)} BTC
-                  </div>
-                </div>
-
-                <div className="payout-info">
-                  <div className="payout-row">
-                    <span>Potential Payout:</span>
-                    <span className="payout-value">
-                      {(betAmount * multiplier).toFixed(0)} sats
-                    </span>
-                  </div>
-                  <div className="payout-row">
-                    <span>Potential Profit:</span>
-                    <span className="payout-value glow">
-                      +{(betAmount * multiplier - betAmount).toFixed(0)} sats
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              <button
-                className="btn btn-primary btn-large"
-                onClick={handleCreateBet}
-                disabled={loading}
-              >
-                {loading 
-                  ? '🔄 Processing...' 
-                  : window.unisat 
-                    ? '🎲 Bet & Send with Unisat' 
-                    : '🎲 Create Bet'}
-              </button>
-            </>
-          ) : (
-            <>
-              <div className="deposit-instructions">
-                <div className="instruction-step">
-                  <div className="step-number">1</div>
-                  <div className="step-content">
-                    <h3>Send Bitcoin</h3>
-                    <p>Send <strong>{betAmount} satoshis</strong> to:</p>
-                    <div className="address-display">
-                      <code>{depositAddress}</code>
-                      <button 
-                        className="btn-icon"
-                        onClick={() => copyToClipboard(depositAddress)}
-                        title="Copy address"
-                      >
-                        📋
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="instruction-step">
-                  <div className="step-number">2</div>
-                  <div className="step-content">
-                    <h3>Enter Transaction ID</h3>
-                    <p>After sending, paste your transaction ID:</p>
-                    <div className="txid-input-group">
-                      <input
-                        type="text"
-                        className="txid-input"
-                        placeholder="Transaction ID (txid)"
-                        value={txid}
-                        onChange={(e) => setTxid(e.target.value)}
-                      />
-                      <button
-                        className="btn btn-primary"
-                        onClick={handleSubmitTx}
-                        disabled={loading || !txid}
-                      >
-                        {loading ? '⏳ Processing...' : '✅ Submit'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {polling && (
-                  <div className="polling-status">
-                    <div className="spinner"></div>
-                    <p>Waiting for transaction confirmation and dice roll...</p>
-                    <p className="small-text">This may take a few minutes</p>
-                  </div>
-                )}
-
-                <button
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    setShowDeposit(false);
-                    setTxid('');
-                  }}
-                  disabled={loading}
-                >
-                  Cancel
-                </button>
-              </div>
-            </>
-          )}
-
-          {error && (
-            <div className="error-box">
-              ⚠️ {error}
-            </div>
-          )}
-        </div>
-
-        {betResult && (
-          <div className="result-card slide-in">
-            <div className={`result-header ${betResult.is_win ? 'win' : 'lose'}`}>
-              {betResult.is_win ? '🎉 YOU WIN!' : '😢 YOU LOSE'}
-            </div>
-            
-            <div className="result-details">
-              <div className="dice-result dice-rolling">
-                <div className="roll-number">
-                  {betResult.roll_result.toFixed(2)}
-                </div>
-              </div>
-
-              <div className="result-info">
-                <div className="info-row">
-                  <span>Target:</span>
-                  <span>&lt; {betResult.win_chance.toFixed(2)}</span>
-                </div>
-                <div className="info-row">
-                  <span>Roll:</span>
-                  <span className="highlight">{betResult.roll_result.toFixed(2)}</span>
-                </div>
-                <div className="info-row">
-                  <span>Bet Amount:</span>
-                  <span>{betResult.bet_amount} sats</span>
-                </div>
-                <div className="info-row">
-                  <span>Payout:</span>
-                  <span className={betResult.is_win ? 'win-text' : 'lose-text'}>
-                    {betResult.payout_amount} sats
-                  </span>
-                </div>
-                <div className="info-row profit-row">
-                  <span>Profit:</span>
-                  <span className={betResult.profit >= 0 ? 'win-text' : 'lose-text'}>
-                    {betResult.profit >= 0 ? '+' : ''}{betResult.profit} sats
-                  </span>
-                </div>
-              </div>
-
-              {betResult.payout_txid && (
-                <div className="payout-txid">
-                  <p>Payout Transaction:</p>
-                  <code>{betResult.payout_txid}</code>
-                </div>
-              )}
-            </div>
-
-            <button
-              className="btn btn-primary"
-              onClick={() => setBetResult(null)}
-            >
-              Place Another Bet
-            </button>
+          <div className="loading-spinner">
+            <div className="spinner"></div>
+            <p>Loading...</p>
           </div>
-        )}
+        </div>
       </div>
+    );
+  }
 
-      <div className="game-info">
-        <div className="info-card">
-          <h3>🎯 How to Play</h3>
-          {window.unisat ? (
-            <ol>
-              <li>Choose your multiplier (higher = harder to win)</li>
-              <li>Set your bet amount</li>
-              <li>Click "Bet & Send with Unisat"</li>
-              <li>Approve the transaction in your wallet</li>
-              <li>Watch the dice roll automatically!</li>
-            </ol>
-          ) : (
-            <ol>
-              <li>Choose your multiplier (higher = harder to win)</li>
-              <li>Set your bet amount</li>
-              <li>Send Bitcoin to the generated address</li>
-              <li>Submit your transaction ID</li>
-              <li>Watch the dice roll!</li>
-            </ol>
-          )}
+  return (
+    <div className="dice-game">
+      <div className="game-card satoshi-style-simple">
+        <div className="game-header">
+          <h2>🎲 Provably Fair Dice</h2>
+          <p className="subtitle">Send Bitcoin, Win Instantly</p>
         </div>
 
-        <div className="info-card">
-          <h3>📊 Game Info</h3>
-          <ul>
-            <li>House Edge: {HOUSE_EDGE}%</li>
-            <li>Min Bet: 10,000 sats</li>
-            <li>Max Bet: 1,000,000 sats</li>
-            <li>Provably Fair: ✅</li>
-            <li>Instant Payout: ✅</li>
-          </ul>
+        <div className="satoshi-container">
+          {/* QR Code Section */}
+          <div className="qr-section-main">
+            <h3>📲 Scan to Play</h3>
+            <div className="qr-container-large">
+              <QRCodeSVG 
+                value={`bitcoin:${houseAddress}`}
+                size={280}
+                level="H"
+                includeMargin={true}
+                bgColor="#ffffff"
+                fgColor="#000000"
+              />
+            </div>
+          </div>
+
+          {/* Address Section */}
+          <div className="address-section-main">
+            <h3>💰 Send Bitcoin to This Address</h3>
+            <div className="address-display-box">
+              <code className="address-text">{houseAddress}</code>
+              <button 
+                className={`btn-copy-large ${copied ? 'copied' : ''}`}
+                onClick={() => copyToClipboard(houseAddress)}
+              >
+                {copied ? '✅ Copied!' : '📋 Copy Address'}
+              </button>
+              {copied && <div className="copied-message">Address copied to clipboard!</div>}
+            </div>
+          </div>
+
+          {/* How It Works */}
+          <div className="how-it-works">
+            <h3>⚡ How It Works</h3>
+            <div className="steps">
+              <div className="step">
+                <div className="step-number">1</div>
+                <div className="step-content">
+                  <strong>Send Bitcoin</strong>
+                  <p>Send any amount (min 600 sats ~$0.30) to the address above</p>
+                </div>
+              </div>
+              <div className="step">
+                <div className="step-number">2</div>
+                <div className="step-content">
+                  <strong>Auto-Detect</strong>
+                  <p>Transaction detected automatically in 5-30 seconds</p>
+                </div>
+              </div>
+              <div className="step">
+                <div className="step-number">3</div>
+                <div className="step-content">
+                  <strong>Auto-Roll</strong>
+                  <p>Dice rolls automatically using provably fair algorithm</p>
+                </div>
+              </div>
+              <div className="step">
+                <div className="step-number">4</div>
+                <div className="step-content">
+                  <strong>Instant Payout</strong>
+                  <p>If you win, payout sent to your address instantly!</p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Multiplier Options */}
+          <div className="multiplier-options">
+            <h3>🎯 Multiplier Options</h3>
+            <p className="multiplier-note">Your payout depends on the last digit of your transaction ID!</p>
+            <div className="multiplier-grid">
+              {multipliers.map((m) => (
+                <div key={m.value} className="multiplier-card">
+                  <div className="multiplier-value">{m.value}x</div>
+                  <div className="multiplier-chance">{m.chance.toFixed(2)}% chance</div>
+                  <div className="multiplier-example">
+                    1,000 sats → {(1000 * m.value).toLocaleString()} sats
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Important Info */}
+          <div className="important-info">
+            <div className="info-box">
+              <div className="info-icon">💡</div>
+              <div className="info-content">
+                <strong>Fully Automatic</strong>
+                <p>No buttons, no forms. Just send Bitcoin and win!</p>
+              </div>
+            </div>
+            <div className="info-box">
+              <div className="info-icon">🔒</div>
+              <div className="info-content">
+                <strong>Provably Fair</strong>
+                <p>Every roll is verifiable using HMAC-SHA512</p>
+              </div>
+            </div>
+            <div className="info-box">
+              <div className="info-icon">⚡</div>
+              <div className="info-content">
+                <strong>Instant Results</strong>
+                <p>Winnings sent to your address within seconds</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Bet Limits */}
+          <div className="bet-limits">
+            <div className="limit-item">
+              <span className="limit-label">Min Bet:</span>
+              <span className="limit-value">600 sats (~$0.30)</span>
+            </div>
+            <div className="limit-item">
+              <span className="limit-label">Max Bet:</span>
+              <span className="limit-value">1,000,000 sats (~$500)</span>
+            </div>
+            <div className="limit-item">
+              <span className="limit-label">House Edge:</span>
+              <span className="limit-value">2%</span>
+            </div>
+          </div>
         </div>
       </div>
     </div>

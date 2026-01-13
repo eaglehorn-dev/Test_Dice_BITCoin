@@ -3,18 +3,15 @@ Payout Engine
 Automatic payout processing for winning bets
 Handles Bitcoin transaction creation and broadcasting
 """
-import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List, Dict, Any
 from datetime import datetime
 from sqlalchemy.orm import Session
-from blockcypher import simple_spend, create_unsigned_tx, make_tx_signatures, broadcast_signed_transaction
-import requests
+import httpx
+from loguru import logger
 
 from .config import config
 from .database import Bet, Payout, Transaction
 from .provably_fair import ProvablyFair
-
-logger = logging.getLogger(__name__)
 
 
 class PayoutEngine:
@@ -22,9 +19,17 @@ class PayoutEngine:
     
     def __init__(self, db: Session):
         self.db = db
-        self.api_token = config.BLOCKCYPHER_API_TOKEN
         self.house_private_key = config.HOUSE_PRIVATE_KEY
         self.house_address = config.HOUSE_ADDRESS
+        self.network = config.NETWORK
+        
+        # Set API endpoints based on network
+        if self.network == 'mainnet':
+            self.mempool_api = 'https://mempool.space/api'
+            self.blockstream_api = 'https://blockstream.info/api'
+        else:
+            self.mempool_api = 'https://mempool.space/testnet/api'
+            self.blockstream_api = 'https://blockstream.info/testnet/api'
     
     def process_winning_bet(self, bet: Bet) -> Optional[Payout]:
         """
@@ -73,12 +78,9 @@ class PayoutEngine:
             logger.info(f"[OK] Created payout {payout.id} for bet {bet.id}: {payout.amount} sats to {recipient_address}")
             
             # Attempt to broadcast payout
-            success = self._broadcast_payout(payout)
-            
-            if success:
-                bet.status = 'paid'
-                bet.paid_at = datetime.utcnow()
-                self.db.commit()
+            # Note: Broadcasting is now async and will be handled in background
+            import asyncio
+            asyncio.create_task(self._async_broadcast_and_update(payout, bet))
             
             return payout
             
@@ -86,6 +88,19 @@ class PayoutEngine:
             logger.error(f"Error processing winning bet {bet.id}: {e}")
             self.db.rollback()
             return None
+    
+    async def _async_broadcast_and_update(self, payout: Payout, bet: Bet):
+        """Async wrapper to broadcast payout and update bet status"""
+        try:
+            success = await self._broadcast_payout(payout)
+            
+            if success:
+                bet.status = 'paid'
+                bet.paid_at = datetime.utcnow()
+                self.db.commit()
+                logger.info(f"[OK] Bet {bet.id} marked as paid")
+        except Exception as e:
+            logger.error(f"Error in async broadcast wrapper: {e}")
     
     def _is_eligible_for_payout(self, bet: Bet) -> bool:
         """Check if bet is eligible for payout"""
@@ -139,7 +154,7 @@ class PayoutEngine:
         
         return None
     
-    def _broadcast_payout(self, payout: Payout) -> bool:
+    async def _broadcast_payout(self, payout: Payout) -> bool:
         """
         Broadcast payout transaction to network
         
@@ -159,10 +174,11 @@ class PayoutEngine:
             
             payout.retry_count += 1
             
-            # Use BlockCypher simple_spend API
+            # Send Bitcoin transaction using bitcoinlib
             logger.info(f"Broadcasting payout {payout.id}: {payout.amount} sats to {payout.to_address}")
             
-            result = self._send_bitcoin(
+            # Call async function directly
+            result = await self._send_bitcoin(
                 to_address=payout.to_address,
                 amount_satoshis=payout.amount,
                 from_private_key=self.house_private_key
@@ -201,9 +217,80 @@ class PayoutEngine:
             self.db.commit()
             return False
     
-    def _send_bitcoin(self, to_address: str, amount_satoshis: int, from_private_key: str) -> Optional[dict]:
+    async def _get_utxos(self, address: str) -> List[Dict[str, Any]]:
         """
-        Send Bitcoin using BlockCypher API
+        Get UTXOs for an address from Mempool.space API
+        
+        Args:
+            address: Bitcoin address
+            
+        Returns:
+            List of UTXO dictionaries
+        """
+        try:
+            url = f"{self.mempool_api}/address/{address}/utxo"
+            
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.get(url)
+                
+                if response.status_code == 200:
+                    utxos = response.json()
+                    logger.info(f"[PAYOUT] Found {len(utxos)} UTXOs for {address[:10]}...")
+                    return utxos
+                else:
+                    logger.warning(f"[PAYOUT] Mempool.space returned {response.status_code}")
+                    return []
+                    
+        except Exception as e:
+            logger.error(f"[PAYOUT] Error fetching UTXOs: {e}")
+            return []
+    
+    async def _broadcast_raw_tx(self, raw_tx_hex: str) -> Optional[str]:
+        """
+        Broadcast raw transaction hex to network
+        
+        Args:
+            raw_tx_hex: Raw transaction in hex format
+            
+        Returns:
+            Transaction ID or None
+        """
+        try:
+            # Try Mempool.space first
+            url = f"{self.mempool_api}/tx"
+            
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(url, content=raw_tx_hex)
+                
+                if response.status_code == 200:
+                    txid = response.text.strip()
+                    logger.info(f"[PAYOUT] ✅ Broadcast successful via Mempool.space: {txid[:16]}...")
+                    return txid
+                else:
+                    logger.warning(f"[PAYOUT] Mempool.space broadcast failed: {response.status_code}")
+            
+            # Try Blockstream as backup
+            url = f"{self.blockstream_api}/tx"
+            
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                response = await client.post(url, content=raw_tx_hex)
+                
+                if response.status_code == 200:
+                    txid = response.text.strip()
+                    logger.info(f"[PAYOUT] ✅ Broadcast successful via Blockstream: {txid[:16]}...")
+                    return txid
+                else:
+                    logger.error(f"[PAYOUT] Blockstream broadcast failed: {response.status_code}")
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"[PAYOUT] Error broadcasting transaction: {e}")
+            return None
+    
+    async def _send_bitcoin(self, to_address: str, amount_satoshis: int, from_private_key: str) -> Optional[dict]:
+        """
+        Send Bitcoin using bitcoinlib
         
         Args:
             to_address: Recipient address
@@ -214,55 +301,101 @@ class PayoutEngine:
             Transaction result dictionary or None
         """
         try:
-            # Use BlockCypher simple_spend
-            result = simple_spend(
-                from_privkey=from_private_key,
-                to_address=to_address,
-                to_satoshis=amount_satoshis,
-                coin_symbol='btc-testnet',
-                api_key=self.api_token
-            )
+            from bitcoinlib.keys import Key
+            from bitcoinlib.transactions import Transaction as BTCTransaction, Input, Output
             
-            return result
+            logger.info(f"[PAYOUT] Creating transaction: {amount_satoshis} sats to {to_address[:10]}...")
             
-        except Exception as e:
-            logger.error(f"Error sending Bitcoin: {e}")
+            # Get UTXOs for house address
+            utxos = await self._get_utxos(self.house_address)
             
-            # Try alternative method using raw transaction
-            try:
-                return self._send_bitcoin_raw(to_address, amount_satoshis, from_private_key)
-            except Exception as e2:
-                logger.error(f"Alternative send method also failed: {e2}")
+            if not utxos:
+                logger.error(f"[PAYOUT] No UTXOs available for {self.house_address}")
                 return None
-    
-    def _send_bitcoin_raw(self, to_address: str, amount_satoshis: int, from_private_key: str) -> Optional[dict]:
-        """
-        Alternative method: Create and broadcast raw transaction
-        
-        Args:
-            to_address: Recipient address
-            amount_satoshis: Amount to send
-            from_private_key: Private key in WIF format
             
-        Returns:
-            Transaction result or None
-        """
-        try:
-            # This is a simplified version
-            # In production, you'd want more sophisticated UTXO selection
+            # Select UTXOs (simple: use first UTXO that's large enough)
+            selected_utxo = None
+            for utxo in utxos:
+                if utxo['value'] >= amount_satoshis + 1000:  # +1000 for fee
+                    selected_utxo = utxo
+                    break
             
-            logger.info("Attempting raw transaction method")
+            if not selected_utxo:
+                # Try combining UTXOs if single one isn't enough
+                total = sum(u['value'] for u in utxos)
+                if total >= amount_satoshis + 1000:
+                    logger.info(f"[PAYOUT] Using multiple UTXOs (total: {total} sats)")
+                    selected_utxo = utxos  # Use all
+                else:
+                    logger.error(f"[PAYOUT] Insufficient funds: need {amount_satoshis + 1000}, have {total}")
+                    return None
             
-            # For now, delegate back to simple_spend but with different params
-            # In a real implementation, you'd use create_unsigned_tx, sign, and broadcast
+            # Create key from private key
+            network = 'testnet' if self.network != 'mainnet' else 'bitcoin'
+            key = Key(from_private_key, network=network)
             
-            return None
+            # Calculate fee (simple: 1 sat/vbyte, ~250 bytes for typical tx)
+            fee = 250
+            
+            # Create transaction inputs
+            inputs = []
+            if isinstance(selected_utxo, list):
+                for utxo in selected_utxo:
+                    inputs.append(Input(
+                        prev_txid=utxo['txid'],
+                        output_n=utxo['vout'],
+                        keys=key,
+                        network=network
+                    ))
+                total_input = sum(u['value'] for u in selected_utxo)
+            else:
+                inputs.append(Input(
+                    prev_txid=selected_utxo['txid'],
+                    output_n=selected_utxo['vout'],
+                    keys=key,
+                    network=network
+                ))
+                total_input = selected_utxo['value']
+            
+            # Create transaction outputs
+            outputs = [
+                Output(amount_satoshis, address=to_address, network=network)
+            ]
+            
+            # Add change output if needed
+            change = total_input - amount_satoshis - fee
+            if change > 546:  # Dust limit
+                outputs.append(Output(change, address=self.house_address, network=network))
+            
+            # Create and sign transaction
+            tx = BTCTransaction(inputs=inputs, outputs=outputs, network=network)
+            tx.sign()
+            
+            # Get raw transaction hex
+            raw_tx = tx.raw_hex()
+            
+            logger.info(f"[PAYOUT] Transaction signed, size: {len(raw_tx)//2} bytes")
+            
+            # Broadcast transaction
+            txid = await self._broadcast_raw_tx(raw_tx)
+            
+            if txid:
+                return {
+                    'tx': {
+                        'hash': txid,
+                        'tx_hex': raw_tx
+                    }
+                }
+            else:
+                return None
             
         except Exception as e:
-            logger.error(f"Error in raw transaction method: {e}")
+            logger.error(f"[PAYOUT] Error sending Bitcoin: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
     
-    def retry_failed_payouts(self) -> int:
+    async def retry_failed_payouts(self) -> int:
         """
         Retry all failed payouts that haven't exceeded max retries
         
@@ -281,7 +414,7 @@ class PayoutEngine:
             for payout in failed_payouts:
                 logger.info(f"Retrying payout {payout.id}")
                 
-                success = self._broadcast_payout(payout)
+                success = await self._broadcast_payout(payout)
                 
                 if success:
                     retried += 1
@@ -304,9 +437,9 @@ class PayoutEngine:
             logger.error(f"Error retrying payouts: {e}")
             return 0
     
-    def check_payout_confirmations(self) -> int:
+    async def check_payout_confirmations_async(self) -> int:
         """
-        Check confirmations for broadcast payouts
+        Check confirmations for broadcast payouts using Mempool.space API
         
         Returns:
             Number of payouts confirmed
@@ -322,24 +455,22 @@ class PayoutEngine:
             
             for payout in broadcast_payouts:
                 try:
-                    # Check transaction status
-                    from blockcypher import get_transaction_details
+                    # Check transaction status via Mempool.space
+                    url = f"{self.mempool_api}/tx/{payout.txid}"
                     
-                    tx_details = get_transaction_details(
-                        payout.txid,
-                        coin_symbol='btc-testnet',
-                        api_key=self.api_token
-                    )
-                    
-                    if tx_details:
-                        confirmations = tx_details.get('confirmations', 0)
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        response = await client.get(url)
                         
-                        if confirmations >= 1:
-                            payout.status = 'confirmed'
-                            payout.confirmed_at = datetime.utcnow()
-                            confirmed += 1
+                        if response.status_code == 200:
+                            tx_data = response.json()
+                            status = tx_data.get('status', {})
                             
-                            logger.info(f"[OK] Payout {payout.id} confirmed: {payout.txid}")
+                            if status.get('confirmed'):
+                                payout.status = 'confirmed'
+                                payout.confirmed_at = datetime.utcnow()
+                                confirmed += 1
+                                
+                                logger.info(f"[OK] Payout {payout.id} confirmed: {payout.txid}")
                 
                 except Exception as e:
                     logger.error(f"Error checking payout {payout.id}: {e}")
@@ -352,6 +483,11 @@ class PayoutEngine:
         except Exception as e:
             logger.error(f"Error checking payout confirmations: {e}")
             return 0
+    
+    def check_payout_confirmations(self) -> int:
+        """Sync wrapper for check_payout_confirmations_async"""
+        import asyncio
+        return asyncio.run(self.check_payout_confirmations_async())
 
 
 class BetProcessor:
@@ -372,22 +508,24 @@ class BetProcessor:
             Bet object or None
         """
         try:
-            # Check if already processed
-            if transaction.is_processed:
-                logger.info(f"Transaction {transaction.txid} already processed")
-                return None
-            
-            # Check if bet already exists
+            # Check if bet already exists (must check this first!)
             existing_bet = self.db.query(Bet).filter(
                 Bet.deposit_txid == transaction.txid
             ).first()
             
             if existing_bet:
                 logger.info(f"Bet already exists for transaction {transaction.txid}")
-                transaction.is_processed = True
-                transaction.processed_at = datetime.utcnow()
-                self.db.commit()
+                # Mark transaction as processed if not already
+                if not transaction.is_processed:
+                    transaction.is_processed = True
+                    transaction.processed_at = datetime.utcnow()
+                    self.db.commit()
                 return existing_bet
+            
+            # Check if already processed but no bet found (shouldn't happen, but handle it)
+            if transaction.is_processed:
+                logger.warning(f"Transaction {transaction.txid} marked as processed but no bet found")
+                return None
             
             # Get or create user
             from .database import User, DepositAddress, Seed
