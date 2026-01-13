@@ -34,9 +34,25 @@ class Config:
     NETWORK: str = os.getenv("NETWORK", "testnet")
     TX_DETECTION_TIMEOUT_MINUTES: int = int(os.getenv("TX_DETECTION_TIMEOUT_MINUTES", "60"))
     
+    # Transaction Fees
+    DEFAULT_TX_FEE_SATOSHIS: int = int(os.getenv("DEFAULT_TX_FEE_SATOSHIS", "250"))  # Estimated fee for typical transaction
+    FEE_BUFFER_SATOSHIS: int = int(os.getenv("FEE_BUFFER_SATOSHIS", "1000"))  # Buffer for UTXO selection
+    DUST_LIMIT_SATOSHIS: int = int(os.getenv("DUST_LIMIT_SATOSHIS", "546"))  # Bitcoin dust limit
+    
+    # API Request Timeouts (seconds)
+    API_REQUEST_TIMEOUT: int = int(os.getenv("API_REQUEST_TIMEOUT", "10"))
+    BROADCAST_TIMEOUT: int = int(os.getenv("BROADCAST_TIMEOUT", "15"))
+    
+    # WebSocket Configuration
+    WS_PING_INTERVAL: int = int(os.getenv("WS_PING_INTERVAL", "30"))
+    WS_PING_TIMEOUT: int = int(os.getenv("WS_PING_TIMEOUT", "20"))
+    WS_RECONNECT_DELAY: int = int(os.getenv("WS_RECONNECT_DELAY", "5"))
+    WS_MAX_RECONNECT_DELAY: int = int(os.getenv("WS_MAX_RECONNECT_DELAY", "60"))
+    
     # API Endpoints
-    BLOCKSTREAM_API: str = os.getenv("BLOCKSTREAM_API", "https://blockstream.info/testnet/api")
     MEMPOOL_SPACE_API: str = os.getenv("MEMPOOL_SPACE_API", "https://mempool.space/testnet/api")
+    MEMPOOL_WEBSOCKET_URL: str = os.getenv("MEMPOOL_WEBSOCKET_URL", "wss://mempool.space/testnet/api/v1/ws")
+    BLOCKSTREAM_API: str = os.getenv("BLOCKSTREAM_API", "https://blockstream.info/testnet/api")
     
     # Security
     SECRET_KEY: str = os.getenv("SECRET_KEY", "change-this-secret-key-in-production")

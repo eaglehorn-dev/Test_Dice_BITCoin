@@ -23,13 +23,9 @@ class PayoutEngine:
         self.house_address = config.HOUSE_ADDRESS
         self.network = config.NETWORK
         
-        # Set API endpoints based on network
-        if self.network == 'mainnet':
-            self.mempool_api = 'https://mempool.space/api'
-            self.blockstream_api = 'https://blockstream.info/api'
-        else:
-            self.mempool_api = 'https://mempool.space/testnet/api'
-            self.blockstream_api = 'https://blockstream.info/testnet/api'
+        # API endpoints from config
+        self.mempool_api = config.MEMPOOL_SPACE_API
+        self.blockstream_api = config.BLOCKSTREAM_API
     
     def process_winning_bet(self, bet: Bet) -> Optional[Payout]:
         """
@@ -230,7 +226,7 @@ class PayoutEngine:
         try:
             url = f"{self.mempool_api}/address/{address}/utxo"
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=float(config.API_REQUEST_TIMEOUT)) as client:
                 response = await client.get(url)
                 
                 if response.status_code == 200:
@@ -259,7 +255,7 @@ class PayoutEngine:
             # Try Mempool.space first
             url = f"{self.mempool_api}/tx"
             
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=float(config.BROADCAST_TIMEOUT)) as client:
                 response = await client.post(url, content=raw_tx_hex)
                 
                 if response.status_code == 200:
@@ -272,7 +268,7 @@ class PayoutEngine:
             # Try Blockstream as backup
             url = f"{self.blockstream_api}/tx"
             
-            async with httpx.AsyncClient(timeout=15.0) as client:
+            async with httpx.AsyncClient(timeout=float(config.BROADCAST_TIMEOUT)) as client:
                 response = await client.post(url, content=raw_tx_hex)
                 
                 if response.status_code == 200:
@@ -313,29 +309,30 @@ class PayoutEngine:
                 logger.error(f"[PAYOUT] No UTXOs available for {self.house_address}")
                 return None
             
-            # Select UTXOs (simple: use first UTXO that's large enough)
+            # Select UTXOs (use first UTXO that's large enough including fee buffer)
+            fee_buffer = config.FEE_BUFFER_SATOSHIS
             selected_utxo = None
             for utxo in utxos:
-                if utxo['value'] >= amount_satoshis + 1000:  # +1000 for fee
+                if utxo['value'] >= amount_satoshis + fee_buffer:
                     selected_utxo = utxo
                     break
             
             if not selected_utxo:
                 # Try combining UTXOs if single one isn't enough
                 total = sum(u['value'] for u in utxos)
-                if total >= amount_satoshis + 1000:
+                if total >= amount_satoshis + fee_buffer:
                     logger.info(f"[PAYOUT] Using multiple UTXOs (total: {total} sats)")
                     selected_utxo = utxos  # Use all
                 else:
-                    logger.error(f"[PAYOUT] Insufficient funds: need {amount_satoshis + 1000}, have {total}")
+                    logger.error(f"[PAYOUT] Insufficient funds: need {amount_satoshis + fee_buffer}, have {total}")
                     return None
             
             # Create key from private key
             network = 'testnet' if self.network != 'mainnet' else 'bitcoin'
             key = Key(from_private_key, network=network)
             
-            # Calculate fee (simple: 1 sat/vbyte, ~250 bytes for typical tx)
-            fee = 250
+            # Calculate transaction fee
+            fee = config.DEFAULT_TX_FEE_SATOSHIS
             
             # Create transaction inputs
             inputs = []
@@ -362,9 +359,9 @@ class PayoutEngine:
                 Output(amount_satoshis, address=to_address, network=network)
             ]
             
-            # Add change output if needed
+            # Add change output if needed (above dust limit)
             change = total_input - amount_satoshis - fee
-            if change > 546:  # Dust limit
+            if change > config.DUST_LIMIT_SATOSHIS:
                 outputs.append(Output(change, address=self.house_address, network=network))
             
             # Create and sign transaction
@@ -458,7 +455,7 @@ class PayoutEngine:
                     # Check transaction status via Mempool.space
                     url = f"{self.mempool_api}/tx/{payout.txid}"
                     
-                    async with httpx.AsyncClient(timeout=10.0) as client:
+                    async with httpx.AsyncClient(timeout=float(config.API_REQUEST_TIMEOUT)) as client:
                         response = await client.get(url)
                         
                         if response.status_code == 200:

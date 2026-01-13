@@ -39,7 +39,7 @@ class TransactionDetector:
         try:
             url = f"{config.MEMPOOL_SPACE_API}/address/{address}/txs"
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=float(config.API_REQUEST_TIMEOUT)) as client:
                 response = await client.get(url)
                 
                 if response.status_code == 200:
@@ -65,7 +65,7 @@ class TransactionDetector:
         try:
             url = f"{config.MEMPOOL_SPACE_API}/tx/{txid}"
             
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=float(config.API_REQUEST_TIMEOUT)) as client:
                 response = await client.get(url)
                 
                 if response.status_code == 200:
@@ -264,14 +264,11 @@ class MempoolWebSocket:
         self.websocket = None
         self.running = False
         self.subscribed_addresses: Set[str] = set()
-        self.reconnect_delay = 5  # seconds
-        self.max_reconnect_delay = 60
+        self.reconnect_delay = config.WS_RECONNECT_DELAY
+        self.max_reconnect_delay = config.WS_MAX_RECONNECT_DELAY
         
-        # WebSocket URL
-        if config.NETWORK == 'mainnet':
-            self.ws_url = f"wss://mempool.space/api/v1/ws"
-        else:
-            self.ws_url = f"wss://mempool.space/testnet/api/v1/ws"
+        # WebSocket URL from config
+        self.ws_url = config.MEMPOOL_WEBSOCKET_URL
     
     async def connect(self):
         """Establish WebSocket connection"""
@@ -279,8 +276,8 @@ class MempoolWebSocket:
             logger.info(f"[WEBSOCKET] Connecting to {self.ws_url}")
             self.websocket = await websockets.connect(
                 self.ws_url,
-                ping_interval=30,
-                ping_timeout=20,
+                ping_interval=config.WS_PING_INTERVAL,
+                ping_timeout=config.WS_PING_TIMEOUT,
                 close_timeout=10
             )
             logger.info("[WEBSOCKET] Connected successfully to Mempool.space")
