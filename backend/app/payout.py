@@ -75,8 +75,11 @@ class PayoutEngine:
             
             # Attempt to broadcast payout
             # Note: Broadcasting is now async and will be handled in background
+            # Store IDs instead of objects to avoid session issues
             import asyncio
-            asyncio.create_task(self._async_broadcast_and_update(payout, bet))
+            payout_id = payout.id
+            bet_id = bet.id
+            asyncio.create_task(self._async_broadcast_and_update(payout_id, bet_id))
             
             return payout
             
@@ -85,18 +88,39 @@ class PayoutEngine:
             self.db.rollback()
             return None
     
-    async def _async_broadcast_and_update(self, payout: Payout, bet: Bet):
+    async def _async_broadcast_and_update(self, payout_id: int, bet_id: int):
         """Async wrapper to broadcast payout and update bet status"""
         try:
-            success = await self._broadcast_payout(payout)
+            # Get new database session for async task
+            from .database import get_db
+            db = next(get_db())
             
-            if success:
-                bet.status = 'paid'
-                bet.paid_at = datetime.utcnow()
-                self.db.commit()
-                logger.info(f"[OK] Bet {bet.id} marked as paid")
+            try:
+                # Fetch objects in new session
+                payout = db.query(Payout).filter(Payout.id == payout_id).first()
+                bet = db.query(Bet).filter(Bet.id == bet_id).first()
+                
+                if not payout or not bet:
+                    logger.error(f"Payout {payout_id} or Bet {bet_id} not found")
+                    return
+                
+                # Create new payout engine with this session
+                engine = PayoutEngine(db)
+                success = await engine._broadcast_payout(payout)
+                
+                if success:
+                    bet.status = 'paid'
+                    bet.paid_at = datetime.utcnow()
+                    db.commit()
+                    logger.info(f"[OK] Bet {bet.id} marked as paid")
+                    
+            finally:
+                db.close()
+                
         except Exception as e:
             logger.error(f"Error in async broadcast wrapper: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     def _is_eligible_for_payout(self, bet: Bet) -> bool:
         """Check if bet is eligible for payout"""

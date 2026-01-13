@@ -82,7 +82,7 @@ class Seed(Base):
     bets = relationship("Bet", back_populates="seed")
     
     __table_args__ = (
-        Index('idx_user_active', 'user_id', 'is_active'),
+        Index('idx_seed_user_active', 'user_id', 'is_active'),
     )
     
     def __repr__(self):
@@ -130,9 +130,9 @@ class Bet(Base):
     payout = relationship("Payout", back_populates="bet", uselist=False)
     
     __table_args__ = (
-        Index('idx_user_created', 'user_id', 'created_at'),
-        Index('idx_status', 'status'),
-        Index('idx_deposit_txid', 'deposit_txid'),
+        Index('idx_bet_user_created', 'user_id', 'created_at'),
+        Index('idx_bet_status', 'status'),
+        Index('idx_bet_deposit_txid', 'deposit_txid'),
     )
     
     def __repr__(self):
@@ -178,9 +178,9 @@ class Transaction(Base):
     bet = relationship("Bet", back_populates="transaction")
     
     __table_args__ = (
-        Index('idx_to_address', 'to_address'),
-        Index('idx_processed', 'is_processed'),
-        Index('idx_detected_by', 'detected_by'),
+        Index('idx_tx_to_address', 'to_address'),
+        Index('idx_tx_processed', 'is_processed'),
+        Index('idx_tx_detected_by', 'detected_by'),
     )
     
     def __repr__(self):
@@ -219,8 +219,8 @@ class Payout(Base):
     bet = relationship("Bet", back_populates="payout")
     
     __table_args__ = (
-        Index('idx_status', 'status'),
-        Index('idx_to_address', 'to_address'),
+        Index('idx_payout_status', 'status'),
+        Index('idx_payout_to_address', 'to_address'),
     )
     
     def __repr__(self):
@@ -253,8 +253,8 @@ class DepositAddress(Base):
     expires_at = Column(DateTime, nullable=True)
     
     __table_args__ = (
-        Index('idx_active', 'is_active'),
-        Index('idx_user_active', 'user_id', 'is_active'),
+        Index('idx_deposit_active', 'is_active'),
+        Index('idx_deposit_user_active', 'user_id', 'is_active'),
     )
     
     def __repr__(self):
