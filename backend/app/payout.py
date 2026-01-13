@@ -326,6 +326,12 @@ class PayoutEngine:
             
             logger.info(f"[PAYOUT] Creating transaction: {amount_satoshis} sats to {to_address[:10]}...")
             
+            # Wait briefly for UTXO index to update (race condition fix)
+            # When a deposit just arrived, Mempool.space needs a few seconds to update its UTXO list
+            import asyncio
+            await asyncio.sleep(3)
+            logger.info(f"[PAYOUT] Waited 3s for UTXO index to update")
+            
             # Get UTXOs for house address
             utxos = await self._get_utxos(self.house_address)
             
@@ -358,7 +364,10 @@ class PayoutEngine:
             # Calculate transaction fee
             fee = config.DEFAULT_TX_FEE_SATOSHIS
             
-            # Create transaction inputs
+            # Create transaction inputs (SegWit-aware)
+            # Detect if house address is SegWit (bc1) or Legacy (1)
+            witness_type = 'segwit' if self.house_address.startswith('bc1') or self.house_address.startswith('tb1') else 'legacy'
+            
             inputs = []
             if isinstance(selected_utxo, list):
                 for utxo in selected_utxo:
@@ -366,6 +375,7 @@ class PayoutEngine:
                         prev_txid=utxo['txid'],
                         output_n=utxo['vout'],
                         keys=key,
+                        witness_type=witness_type,
                         network=network
                     ))
                 total_input = sum(u['value'] for u in selected_utxo)
@@ -374,6 +384,7 @@ class PayoutEngine:
                     prev_txid=selected_utxo['txid'],
                     output_n=selected_utxo['vout'],
                     keys=key,
+                    witness_type=witness_type,
                     network=network
                 ))
                 total_input = selected_utxo['value']
@@ -388,8 +399,8 @@ class PayoutEngine:
             if change > config.DUST_LIMIT_SATOSHIS:
                 outputs.append(Output(change, address=self.house_address, network=network))
             
-            # Create and sign transaction
-            tx = BTCTransaction(inputs=inputs, outputs=outputs, network=network)
+            # Create and sign transaction (specify witness_type for SegWit)
+            tx = BTCTransaction(inputs=inputs, outputs=outputs, network=network, witness_type=witness_type)
             tx.sign()
             
             # Get raw transaction hex
