@@ -1,29 +1,46 @@
 import React, { useState, useEffect } from 'react';
-import { getUserBets } from '../utils/api';
+import { getBetHistory } from '../utils/api';
 import './BetHistory.css';
 
 function BetHistory({ userAddress }) {
   const [bets, setBets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedMultiplier, setSelectedMultiplier] = useState('');
+  const [totalStats, setTotalStats] = useState({});
 
   useEffect(() => {
     loadBets();
     // eslint-disable-next-line
-  }, [userAddress]);
+  }, [userAddress, selectedMultiplier]);
 
   const loadBets = async () => {
     try {
       setLoading(true);
       setError('');
       
-      const response = await getUserBets(userAddress);
-      setBets(response.bets);
+      const options = { limit: 50 };
+      if (selectedMultiplier) options.multiplier = parseInt(selectedMultiplier);
+      if (searchTerm) options.search = searchTerm;
+      
+      const response = await getBetHistory(userAddress, options);
+      setBets(response.bets || []);
+      setTotalStats({
+        total_bets: response.total_bets || 0,
+        total_wagered: response.total_wagered || 0,
+        total_won: response.total_won || 0,
+        total_lost: response.total_lost || 0
+      });
     } catch (err) {
       setError(err.message || 'Failed to load bet history');
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleSearch = () => {
+    loadBets();
   };
 
   const formatDate = (dateString) => {
@@ -70,6 +87,61 @@ function BetHistory({ userAddress }) {
     <div className="bet-history slide-in">
       <div className="history-header">
         <h2>📜 Your Bet History</h2>
+        
+        {/* Stats Display */}
+        {totalStats.total_bets > 0 && (
+          <div className="stats-summary">
+            <div className="stat-item">
+              <span className="stat-label">Total Bets:</span>
+              <span className="stat-value">{totalStats.total_bets}</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-label">Wagered:</span>
+              <span className="stat-value">{formatSats(totalStats.total_wagered)} sats</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-label">Won:</span>
+              <span className="stat-value win">{totalStats.total_won}</span>
+            </div>
+            <div className="stat-item">
+              <span className="stat-label">Lost:</span>
+              <span className="stat-value lose">{totalStats.total_lost}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Search and Filter Controls */}
+      <div className="bet-controls">
+        <div className="search-box">
+          <input
+            type="text"
+            placeholder="🔍 Search by wallet address or transaction ID..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
+            className="search-input"
+          />
+          <button onClick={handleSearch} className="btn-search">Search</button>
+        </div>
+
+        <div className="filter-box">
+          <label htmlFor="multiplier-filter">Filter by Multiplier:</label>
+          <select
+            id="multiplier-filter"
+            value={selectedMultiplier}
+            onChange={(e) => setSelectedMultiplier(e.target.value)}
+            className="multiplier-filter"
+          >
+            <option value="">All Multipliers</option>
+            <option value="2">2x</option>
+            <option value="3">3x</option>
+            <option value="5">5x</option>
+            <option value="10">10x</option>
+            <option value="100">100x</option>
+          </select>
+        </div>
+
         <button className="btn btn-secondary" onClick={loadBets}>
           🔄 Refresh
         </button>
@@ -79,16 +151,17 @@ function BetHistory({ userAddress }) {
         <div className="table-header">
           <div>Date</div>
           <div>Bet Amount</div>
+          <div>Wallet</div>
           <div>Multiplier</div>
           <div>Roll</div>
           <div>Result</div>
           <div>Profit</div>
-          <div>Status</div>
+          <div>TxID</div>
         </div>
 
         {bets.map((bet) => (
           <div 
-            key={bet.id} 
+            key={bet.bet_id} 
             className={`table-row ${bet.is_win ? 'win-row' : bet.roll_result !== null ? 'lose-row' : ''}`}
           >
             <div className="cell-date">
@@ -96,6 +169,12 @@ function BetHistory({ userAddress }) {
             </div>
             <div className="cell-amount">
               {formatSats(bet.bet_amount)} sats
+            </div>
+            <div className="cell-wallet" title={bet.target_address}>
+              {bet.target_address ? `${bet.target_address.substring(0, 10)}...` : 'N/A'}
+            </div>
+            <div className="cell-multiplier multiplier-badge">
+              {bet.multiplier}x
             </div>
             <div className="cell-multiplier">
               {bet.target_multiplier.toFixed(2)}x

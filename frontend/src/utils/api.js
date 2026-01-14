@@ -64,4 +64,31 @@ export const getRecentBets = async (limit = 20) => {
   return response.data;
 };
 
+// Wallet Vault Endpoints
+export const getAvailableMultipliers = async () => {
+  const response = await api.get('/api/wallets/multipliers');
+  return response.data;
+};
+
+export const getWalletAddress = async (multiplier) => {
+  const response = await api.get(`/api/wallets/address/${multiplier}`);
+  return response.data;
+};
+
+export const getAllWallets = async () => {
+  const response = await api.get('/api/wallets/all');
+  return response.data;
+};
+
+// Enhanced Bet History with Search & Filters
+export const getBetHistory = async (address, options = {}) => {
+  const { multiplier, search, limit = 50 } = options;
+  const params = { limit };
+  if (multiplier) params.multiplier = multiplier;
+  if (search) params.search = search;
+  
+  const response = await api.get(`/api/bets/history/${address}`, { params });
+  return response.data;
+};
+
 export default api;
