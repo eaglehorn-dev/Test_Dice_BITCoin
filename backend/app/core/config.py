@@ -102,6 +102,9 @@ class Settings(BaseSettings):
     
     FRONTEND_URL: str = "http://localhost:3000"
     
+    class Config:
+        extra = "ignore"
+    
     # ============================================================
     # DYNAMIC PROPERTIES (Automatically switch based on ENV_CURRENT)
     # ============================================================
