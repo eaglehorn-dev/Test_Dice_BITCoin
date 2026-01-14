@@ -63,14 +63,14 @@ async def manually_process_transaction(request: ManualProcessRequest):
         tx_service = TransactionService()
         bet_service = BetService()
         
-        # Verify transaction
-        tx = await tx_service.verify_user_submitted_tx(
-            request.txid,
-            config.HOUSE_ADDRESS
-        )
+        # Verify transaction (will check all vault wallets)
+        tx = await tx_service.verify_transaction_for_vault(request.txid)
         
         if not tx:
-            raise HTTPException(status_code=404, detail="Transaction not found or invalid")
+            raise HTTPException(
+                status_code=404, 
+                detail="Transaction not found or not sent to any vault wallet"
+            )
         
         # Process into bet
         bet = await bet_service.process_detected_transaction(tx)
@@ -83,6 +83,8 @@ async def manually_process_transaction(request: ManualProcessRequest):
             "transaction_id": request.txid,
             "bet_id": str(bet["_id"]),
             "amount": tx["amount"],
+            "target_address": tx.get("target_address"),
+            "multiplier": tx.get("multiplier"),
             "status": bet["status"],
             "message": "Transaction processed successfully"
         }

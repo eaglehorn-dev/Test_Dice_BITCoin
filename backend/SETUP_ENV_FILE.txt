@@ -15,13 +15,6 @@
 MASTER_ENCRYPTION_KEY=MvOAzwI8LtCUovHjgaT_os1SMkWzJEyYYqE0hjDZeg0=
 
 # ============================================================
-# HOUSE WALLET (Legacy - For Fallback Only)
-# ============================================================
-HOUSE_PRIVATE_KEY=KyhbtCsiUfVm5ZGLts4xp3FTe4PidLvEFy2m4BuGPDphL24J5Gt6
-HOUSE_ADDRESS=bc1qq5tdg4c736l6vmqy6farsmv56texph7gv7h2ks
-HOUSE_MNEMONIC=
-
-# ============================================================
 # DATABASE (MongoDB)
 # ============================================================
 MONGODB_URL=mongodb://localhost:27017
@@ -96,7 +89,7 @@ LOG_FILE=dice_game.log
 # SERVER
 # ============================================================
 HOST=0.0.0.0
-PORT=8001
+PORT=8000
 RELOAD=false
 DEBUG=false
 

@@ -111,6 +111,60 @@ class TransactionService:
             logger.error(f"Error verifying transaction: {e}")
             return None
     
+    async def verify_transaction_for_vault(self, txid: str) -> Optional[Dict[str, Any]]:
+        """
+        Verify a transaction against all vault wallets
+        
+        Args:
+            txid: Transaction ID
+            
+        Returns:
+            Transaction document with target_address and multiplier, or None
+        """
+        try:
+            from app.services.wallet_service import WalletService
+            
+            # Get all active vault wallets
+            wallet_service = WalletService()
+            active_wallets = await wallet_service.get_active_wallets()
+            
+            if not active_wallets:
+                logger.warning("[TX] No active vault wallets to verify against")
+                return None
+            
+            # Fetch transaction data
+            tx_data = await self.get_transaction_details(txid)
+            if not tx_data:
+                return None
+            
+            # Check which vault wallet received the transaction
+            vout = tx_data.get('vout', [])
+            
+            for wallet in active_wallets:
+                vault_address = wallet["address"]
+                amount = 0
+                
+                for output in vout:
+                    if output.get('scriptpubkey_address') == vault_address:
+                        amount += output.get('value', 0)
+                
+                if amount > 0:
+                    # Found the target vault wallet!
+                    tx_doc = await self._process_mempool_tx(txid, vault_address, source="manual")
+                    if tx_doc:
+                        # Enrich with vault wallet info
+                        tx_doc["target_address"] = vault_address
+                        tx_doc["multiplier"] = wallet["multiplier"]
+                        logger.info(f"[TX] Transaction matches {wallet['multiplier']}x vault wallet")
+                    return tx_doc
+            
+            logger.warning(f"[TX] Transaction {txid[:16]}... not sent to any vault wallet")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error verifying transaction for vault: {e}")
+            return None
+    
     async def _process_mempool_tx(
         self,
         txid: str,

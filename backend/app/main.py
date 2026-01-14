@@ -187,12 +187,17 @@ async def root():
 @app.get("/api/health")
 async def health_check():
     """Health check endpoint"""
+    monitored_count = len(tx_monitor.monitored_addresses) if tx_monitor and tx_monitor.is_running() else 0
+    
     return {
         "status": "healthy",
         "database": "connected",
         "monitor": "running" if tx_monitor and tx_monitor.is_running() else "stopped",
         "network": config.NETWORK,
-        "house_address": config.HOUSE_ADDRESS
+        "vault_system": {
+            "wallets_monitored": monitored_count,
+            "status": "active" if monitored_count > 0 else "no_wallets"
+        }
     }
 
 

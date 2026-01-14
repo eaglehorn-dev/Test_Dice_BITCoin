@@ -59,13 +59,8 @@ class Settings(BaseSettings):
     COINGECKO_API_URL: str = Field("https://api.coingecko.com/api/v3", description="CoinGecko API base URL")
     
     # ============================================================
-    # LEGACY/SHARED CONFIGURATION
+    # GAME CONFIGURATION
     # ============================================================
-    HOUSE_PRIVATE_KEY: str = ""
-    HOUSE_ADDRESS: str = ""
-    HOUSE_MNEMONIC: Optional[str] = None
-    
-    
     HOUSE_EDGE: float = 0.02
     MIN_BET_SATOSHIS: int = 600
     MAX_BET_SATOSHIS: int = 1000000

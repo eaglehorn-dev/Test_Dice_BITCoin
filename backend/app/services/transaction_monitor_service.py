@@ -6,18 +6,21 @@ from loguru import logger
 
 from app.core.config import config
 from app.utils.mempool_websocket import MempoolWebSocket
+from app.services.wallet_service import WalletService
 
 
 class TransactionMonitorService:
     """
     Background monitoring service for Bitcoin transactions
-    Orchestrates WebSocket monitoring
+    Orchestrates WebSocket monitoring for all vault wallets
     """
     
     def __init__(self):
         self.websocket_client = MempoolWebSocket()
+        self.wallet_service = WalletService()
         self.running = False
         self.monitor_task = None
+        self.monitored_addresses = set()
     
     async def start(self):
         """Start the transaction monitor"""
@@ -28,13 +31,26 @@ class TransactionMonitorService:
         self.running = True
         logger.info("[MONITOR] 🚀 Starting transaction monitor...")
         
-        # Subscribe to house address
-        await self.websocket_client.subscribe_address(config.HOUSE_ADDRESS)
+        # Get all active vault wallets
+        active_wallets = await self.wallet_service.get_active_wallets()
+        
+        if not active_wallets:
+            logger.warning("[MONITOR] ⚠️ No active vault wallets found!")
+            logger.warning("[MONITOR] Run the admin script to create wallets first")
+            return
+        
+        # Subscribe to all vault wallet addresses
+        for wallet in active_wallets:
+            address = wallet["address"]
+            multiplier = wallet["multiplier"]
+            await self.websocket_client.subscribe_address(address)
+            self.monitored_addresses.add(address)
+            logger.info(f"[MONITOR] 📍 Monitoring {multiplier}x wallet: {address[:20]}...")
         
         # Start WebSocket client in background
         self.monitor_task = asyncio.create_task(self.websocket_client.start())
         
-        logger.info(f"[MONITOR] ✅ Monitoring address: {config.HOUSE_ADDRESS[:20]}...")
+        logger.info(f"[MONITOR] ✅ Monitoring {len(active_wallets)} vault wallet(s)")
     
     async def stop(self):
         """Stop the transaction monitor"""

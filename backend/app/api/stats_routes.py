@@ -111,13 +111,50 @@ async def get_game_stats():
 
 @router.get("/house")
 async def get_house_info():
-    """Get house information"""
-    return {
-        "address": config.HOUSE_ADDRESS,
-        "network": config.NETWORK,
-        "house_edge": config.HOUSE_EDGE,
-        "min_bet": config.MIN_BET_SATOSHIS,
-        "max_bet": config.MAX_BET_SATOSHIS,
-        "min_multiplier": config.MIN_MULTIPLIER,
-        "max_multiplier": config.MAX_MULTIPLIER
-    }
+    """Get vault system information"""
+    try:
+        from app.services.wallet_service import WalletService
+        
+        wallet_service = WalletService()
+        active_wallets = await wallet_service.get_active_wallets()
+        available_multipliers = await wallet_service.get_available_multipliers()
+        
+        # Format wallet info (public data only)
+        wallets_info = []
+        for wallet in active_wallets:
+            wallets_info.append({
+                "multiplier": wallet["multiplier"],
+                "address": wallet["address"],
+                "label": wallet.get("label", f"{wallet['multiplier']}x Wallet"),
+                "is_active": wallet.get("is_active", True)
+            })
+        
+        return {
+            "network": config.NETWORK,
+            "house_edge": config.HOUSE_EDGE,
+            "min_bet": config.MIN_BET_SATOSHIS,
+            "max_bet": config.MAX_BET_SATOSHIS,
+            "min_multiplier": config.MIN_MULTIPLIER,
+            "max_multiplier": config.MAX_MULTIPLIER,
+            "vault_system": {
+                "total_wallets": len(active_wallets),
+                "available_multipliers": sorted(available_multipliers),
+                "wallets": sorted(wallets_info, key=lambda x: x["multiplier"])
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error getting house info: {e}")
+        # Fallback response
+        return {
+            "network": config.NETWORK,
+            "house_edge": config.HOUSE_EDGE,
+            "min_bet": config.MIN_BET_SATOSHIS,
+            "max_bet": config.MAX_BET_SATOSHIS,
+            "min_multiplier": config.MIN_MULTIPLIER,
+            "max_multiplier": config.MAX_MULTIPLIER,
+            "vault_system": {
+                "total_wallets": 0,
+                "available_multipliers": [],
+                "wallets": []
+            }
+        }

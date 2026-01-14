@@ -63,14 +63,6 @@ BLOCKSTREAM_API_TEST=https://blockstream.info/testnet/api
 COINGECKO_API_KEY_TEST=
 
 # ============================================================
-# LEGACY/SHARED CONFIGURATION
-# ============================================================
-# House wallet (optional, for backward compatibility)
-HOUSE_PRIVATE_KEY=
-HOUSE_ADDRESS=
-HOUSE_MNEMONIC=
-
-# ============================================================
 # GAME SETTINGS
 # ============================================================
 HOUSE_EDGE=0.02
