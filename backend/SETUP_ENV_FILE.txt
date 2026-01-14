@@ -1,0 +1,106 @@
+# ============================================================
+# COPY THIS ENTIRE FILE TO backend/.env
+# ============================================================
+# Instructions:
+# 1. Copy all content below
+# 2. Create a new file: backend/.env
+# 3. Paste the content
+# 4. Save the file
+# ============================================================
+
+# ============================================================
+# WALLET VAULT ENCRYPTION (CRITICAL - KEEP SECRET!)
+# ============================================================
+# ⚠️ NEVER commit this to git! Already in .gitignore
+MASTER_ENCRYPTION_KEY=MvOAzwI8LtCUovHjgaT_os1SMkWzJEyYYqE0hjDZeg0=
+
+# ============================================================
+# HOUSE WALLET (Legacy - For Fallback Only)
+# ============================================================
+HOUSE_PRIVATE_KEY=KyhbtCsiUfVm5ZGLts4xp3FTe4PidLvEFy2m4BuGPDphL24J5Gt6
+HOUSE_ADDRESS=bc1qq5tdg4c736l6vmqy6farsmv56texph7gv7h2ks
+HOUSE_MNEMONIC=
+
+# ============================================================
+# DATABASE (MongoDB)
+# ============================================================
+MONGODB_URL=mongodb://localhost:27017
+MONGODB_DB_NAME=dice_game
+
+# ============================================================
+# GAME CONFIGURATION
+# ============================================================
+HOUSE_EDGE=0.02
+MIN_BET_SATOSHIS=600
+MAX_BET_SATOSHIS=1000000
+MIN_MULTIPLIER=1.1
+MAX_MULTIPLIER=98.0
+
+# ============================================================
+# BITCOIN NETWORK
+# ============================================================
+CONFIRMATIONS_REQUIRED=1
+MIN_CONFIRMATIONS_PAYOUT=0
+NETWORK=mainnet
+TX_DETECTION_TIMEOUT_MINUTES=60
+
+# ============================================================
+# TRANSACTION FEES
+# ============================================================
+DEFAULT_TX_FEE_SATOSHIS=250
+FEE_BUFFER_SATOSHIS=1000
+DUST_LIMIT_SATOSHIS=546
+
+# ============================================================
+# API ENDPOINTS (MAINNET)
+# ============================================================
+MEMPOOL_SPACE_API=https://mempool.space/api
+MEMPOOL_WEBSOCKET_URL=wss://mempool.space/api/v1/ws
+BLOCKSTREAM_API=https://blockstream.info/api
+
+# ============================================================
+# API TIMEOUTS (seconds)
+# ============================================================
+API_REQUEST_TIMEOUT=10
+BROADCAST_TIMEOUT=15
+
+# ============================================================
+# WEBSOCKET CONFIGURATION
+# ============================================================
+WS_PING_INTERVAL=30
+WS_PING_TIMEOUT=20
+WS_RECONNECT_DELAY=5
+WS_MAX_RECONNECT_DELAY=60
+
+# ============================================================
+# SECURITY
+# ============================================================
+SECRET_KEY=75e7fcfa0bca51bb36dc39d67bfc8fdd34cfd9bd7fd2e49fa6857fb3e5e86fcd
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# ============================================================
+# RATE LIMITING
+# ============================================================
+MAX_REQUESTS_PER_MINUTE=60
+MAX_BETS_PER_USER_PER_HOUR=100
+
+# ============================================================
+# MONITORING & LOGGING
+# ============================================================
+ENABLE_LOGGING=true
+LOG_LEVEL=INFO
+LOG_FILE=dice_game.log
+
+# ============================================================
+# SERVER
+# ============================================================
+HOST=0.0.0.0
+PORT=8001
+RELOAD=false
+DEBUG=false
+
+# ============================================================
+# FRONTEND (CORS)
+# ============================================================
+FRONTEND_URL=http://localhost:3000
