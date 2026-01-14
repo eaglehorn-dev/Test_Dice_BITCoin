@@ -23,10 +23,8 @@ async def websocket_endpoint(websocket: WebSocket):
     
     try:
         while True:
-            # Keep connection alive and handle any client messages
             data = await websocket.receive_text()
             
-            # Echo back or handle specific commands
             await websocket.send_json({
                 "type": "pong",
                 "message": "Connected to Bitcoin Dice Game"

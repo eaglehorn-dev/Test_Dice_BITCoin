@@ -29,7 +29,6 @@ async def get_bet_history(
         users_col = get_users_collection()
         bets_col = get_bets_collection()
         
-        # Get user
         user = await users_col.find_one({"address": address})
         if not user:
             return BetHistoryResponse(
@@ -40,12 +39,10 @@ async def get_bet_history(
                 total_lost=0
             )
         
-        # Get bets
         bets = await bets_col.find(
             {"user_id": user["_id"], "roll_result": {"$ne": None}}
         ).sort("created_at", -1).limit(limit).to_list(length=limit)
         
-        # Format response
         bet_items = [
             BetHistoryItem(
                 bet_id=str(bet["_id"]),

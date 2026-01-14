@@ -170,7 +170,6 @@ class MempoolWebSocket:
                 "rolled_at": bet.get("rolled_at").isoformat() if bet.get("rolled_at") else None
             }
             
-            # Broadcast to all connected clients
             await manager.broadcast({
                 "type": "new_bet",
                 "bet": bet_data
