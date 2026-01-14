@@ -99,7 +99,7 @@ async def create_indexes():
     # Bets indexes
     await db.bets.create_index([("user_id", 1), ("created_at", -1)])
     await db.bets.create_index("status")
-    await db.bets.create_index("deposit_txid")
+    await db.bets.create_index("deposit_txid", unique=True, sparse=True)
     await db.bets.create_index("target_address")
     await db.bets.create_index("multiplier")
     await db.bets.create_index([("target_address", 1), ("multiplier", 1)])
