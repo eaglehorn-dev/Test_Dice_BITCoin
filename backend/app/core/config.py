@@ -141,11 +141,6 @@ class Settings(BaseSettings):
         """Dynamic Blockstream API based on environment"""
         return self.BLOCKSTREAM_API_PROD if self.ENV_CURRENT else self.BLOCKSTREAM_API_TEST
     
-    @property
-    def COINGECKO_API_KEY(self) -> str:
-        """Dynamic CoinGecko API key based on environment"""
-        return self.COINGECKO_API_KEY_PROD if self.ENV_CURRENT else self.COINGECKO_API_KEY_TEST
-    
     # ============================================================
     # VALIDATION & SAFETY CHECKS
     # ============================================================

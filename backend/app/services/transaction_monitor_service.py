@@ -76,6 +76,22 @@ class TransactionMonitorService:
         return self.running
     
     async def subscribe_address(self, address: str):
-        """Subscribe to additional address"""
+        """Subscribe to additional vault address"""
+        if address in self.monitored_addresses:
+            logger.warning(f"[MONITOR] Already monitoring: {address[:20]}...")
+            return
+        
         await self.websocket_client.subscribe_address(address)
+        self.monitored_addresses.add(address)
         logger.info(f"[MONITOR] 📍 Added address to monitoring: {address[:20]}...")
+    
+    async def refresh_vault_addresses(self):
+        """Refresh monitoring to include new vault wallets"""
+        active_wallets = await self.wallet_service.get_active_wallets()
+        
+        for wallet in active_wallets:
+            address = wallet["address"]
+            if address not in self.monitored_addresses:
+                multiplier = wallet["multiplier"]
+                await self.subscribe_address(address)
+                logger.info(f"[MONITOR] ➕ Added new {multiplier}x wallet to monitoring")

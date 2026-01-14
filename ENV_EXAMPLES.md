@@ -46,7 +46,8 @@ BLOCKSTREAM_API_PROD=https://blockstream.info/api
 # ============================================================
 # PRODUCTION API KEYS
 # ============================================================
-# CoinGecko Pro API (for BTC/USD price)
+# CoinGecko Pro API (for BTC/USD price - MAINNET ONLY)
+# Note: USD conversion is automatically disabled for testnet
 COINGECKO_API_KEY_PROD=your-coingecko-pro-api-key-here
 COINGECKO_API_URL=https://api.coingecko.com/api/v3
 
@@ -171,7 +172,8 @@ BLOCKSTREAM_API_TEST=https://blockstream.info/testnet/api
 # ============================================================
 # TEST API KEYS
 # ============================================================
-# CoinGecko Free API (no key needed for testing)
+# CoinGecko Free API (NOT USED - testnet BTC has no USD value)
+# USD conversion is automatically disabled for testnet
 COINGECKO_API_KEY_TEST=
 COINGECKO_API_URL=https://api.coingecko.com/api/v3
 

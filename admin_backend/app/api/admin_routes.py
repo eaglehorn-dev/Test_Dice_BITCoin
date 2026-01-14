@@ -50,7 +50,8 @@ async def get_all_wallets(
             for wallet in wallets:
                 balance = await treasury_service.get_wallet_balance(wallet["address"])
                 wallet["balance_sats"] = balance
-                wallet["balance_usd"] = await price_service.satoshis_to_usd(balance)
+                usd_value = await price_service.satoshis_to_usd(balance)
+                wallet["balance_usd"] = usd_value if usd_value is not None else 0.0
         
         return [WalletInfo(**w) for w in wallets]
     
@@ -138,7 +139,8 @@ async def get_dashboard(
         for wallet in wallets:
             balance = await treasury_service.get_wallet_balance(wallet["address"])
             wallet["balance_sats"] = balance
-            wallet["balance_usd"] = await price_service.satoshis_to_usd(balance)
+            usd_value = await price_service.satoshis_to_usd(balance)
+            wallet["balance_usd"] = usd_value if usd_value is not None else None
             total_balance_sats += balance
         
         btc_price = await price_service.get_btc_price_usd()
@@ -152,6 +154,8 @@ async def get_dashboard(
         
         volume_by_multiplier = await analytics_service.get_volume_by_multiplier("all")
         
+        is_testnet = price_service.is_testnet
+        
         return DashboardResponse(
             treasury_balance_sats=total_balance_sats,
             treasury_balance_btc=treasury_balance_btc,
@@ -162,7 +166,8 @@ async def get_dashboard(
             month_stats=StatsResponse(**month_stats),
             all_time_stats=StatsResponse(**all_time_stats),
             wallets=[WalletInfo(**w) for w in wallets],
-            volume_by_multiplier=[MultiplierVolumeResponse(**v) for v in volume_by_multiplier]
+            volume_by_multiplier=[MultiplierVolumeResponse(**v) for v in volume_by_multiplier],
+            is_testnet=is_testnet
         )
     
     except Exception as e:
