@@ -135,13 +135,39 @@ async def get_dashboard(
         
         wallets = await wallet_service.get_all_wallets()
         
+        # If no wallets, return empty dashboard quickly
+        if not wallets or len(wallets) == 0:
+            empty_stats = {
+                "total_bets": 0,
+                "total_income": 0,
+                "total_payout": 0,
+                "net_profit": 0,
+                "total_wins": 0,
+                "total_losses": 0,
+                "win_rate": 0.0
+            }
+            
+            return DashboardResponse(
+                treasury_balance_sats=0,
+                treasury_balance_btc=0.0,
+                treasury_balance_usd=None,
+                btc_price_usd=None,
+                today_stats=StatsResponse(**empty_stats),
+                week_stats=StatsResponse(**empty_stats),
+                month_stats=StatsResponse(**empty_stats),
+                all_time_stats=StatsResponse(**empty_stats),
+                wallets=[],
+                volume_by_multiplier=[],
+                is_testnet=price_service.is_testnet
+            )
+        
         total_balance_sats = 0
+        # Note: Fetching blockchain balances can be slow, using stored balance instead
         for wallet in wallets:
-            balance = await treasury_service.get_wallet_balance(wallet["address"])
-            wallet["balance_sats"] = balance
-            usd_value = await price_service.satoshis_to_usd(balance)
-            wallet["balance_usd"] = usd_value if usd_value is not None else None
-            total_balance_sats += balance
+            # Use stored balance from database instead of fetching from blockchain
+            wallet["balance_sats"] = wallet.get("balance_satoshis", 0)
+            wallet["balance_usd"] = None  # Will calculate if needed
+            total_balance_sats += wallet["balance_sats"]
         
         btc_price = await price_service.get_btc_price_usd()
         treasury_balance_btc = await price_service.satoshis_to_btc(total_balance_sats)
