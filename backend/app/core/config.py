@@ -5,11 +5,12 @@ Enterprise-grade environment-based configuration using Pydantic Settings
 import sys
 import httpx
 from typing import Optional
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from pydantic import Field, validator
 from loguru import logger
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(extra='ignore')
     """
     Environment-based configuration using Pydantic Settings
     
@@ -101,9 +102,6 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     
     FRONTEND_URL: str = "http://localhost:3000"
-    
-    class Config:
-        extra = "ignore"
     
     # ============================================================
     # DYNAMIC PROPERTIES (Automatically switch based on ENV_CURRENT)
