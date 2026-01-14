@@ -60,20 +60,25 @@ class WalletService:
     
     async def get_all_wallets(self) -> List[Dict[str, Any]]:
         """Get all wallets (without private keys)"""
-        wallets = await self.wallets_collection.find({}).to_list(length=None)
-        
-        return [{
-            "wallet_id": str(w["_id"]),
-            "multiplier": w["multiplier"],
-            "address": w["address"],
-            "is_active": w["is_active"],
-            "is_depleted": w.get("is_depleted", False),
-            "total_received": w.get("total_received", 0),
-            "total_sent": w.get("total_sent", 0),
-            "bet_count": w.get("bet_count", 0),
-            "last_used_at": w.get("last_used_at"),
-            "created_at": w["created_at"]
-        } for w in wallets]
+        try:
+            wallets = await self.wallets_collection.find({}).to_list(length=None)
+            
+            return [{
+                "wallet_id": str(w["_id"]),
+                "multiplier": w["multiplier"],
+                "address": w["address"],
+                "is_active": w["is_active"],
+                "is_depleted": w.get("is_depleted", False),
+                "total_received": w.get("total_received", 0),
+                "total_sent": w.get("total_sent", 0),
+                "bet_count": w.get("bet_count", 0),
+                "last_used_at": w.get("last_used_at"),
+                "created_at": w.get("created_at", __import__('datetime').datetime.utcnow()),
+                "balance_satoshis": w.get("balance_satoshis", 0)
+            } for w in wallets]
+        except Exception as e:
+            logger.error(f"[ADMIN] Failed to get wallets: {e}")
+            return []
     
     async def get_wallet_by_id(self, wallet_id: str) -> Dict[str, Any]:
         """Get wallet by ID (without private key)"""
