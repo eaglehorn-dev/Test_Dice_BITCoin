@@ -253,6 +253,7 @@ class Settings(BaseSettings):
         logger.info(f"[CONFIG] Bitcoin Network: {self.NETWORK}")
     
     class Config:
+        """Pydantic Settings configuration"""
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True

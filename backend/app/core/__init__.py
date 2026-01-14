@@ -1,7 +1,7 @@
 """
 Core module - Configuration, exceptions, and security
 """
-from .config import Config, config
+from .config import Settings, settings, config
 from .exceptions import (
     DiceGameException,
     DatabaseException,
@@ -20,7 +20,8 @@ from .exceptions import (
 )
 
 __all__ = [
-    "Config",
+    "Settings",
+    "settings",
     "config",
     "DiceGameException",
     "DatabaseException",
