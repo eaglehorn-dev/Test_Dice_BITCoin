@@ -49,7 +49,7 @@ async def get_available_multipliers():
 
 
 @router.get("/address/{multiplier}", response_model=WalletAddressResponse)
-async def get_wallet_address(multiplier: int = Query(..., ge=1, le=1000)):
+async def get_wallet_address(multiplier: int):
     """
     Get wallet address for a specific multiplier
     
