@@ -15,6 +15,7 @@ from app.repository.payout_repository import PayoutRepository
 from app.models.database import get_seeds_collection, get_deposit_addresses_collection
 from .provably_fair_service import ProvablyFairService, generate_new_seed_pair
 from .payout_service import PayoutService
+from .wallet_service import WalletService
 
 
 class BetService:
@@ -26,6 +27,7 @@ class BetService:
         self.tx_repo = TransactionRepository()
         self.payout_service = PayoutService()
         self.fair_service = ProvablyFairService()
+        self.wallet_service = WalletService()
     
     async def process_detected_transaction(self, transaction_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -53,15 +55,19 @@ class BetService:
                 logger.warning(f"Transaction {transaction_dict['txid']} marked as processed but no bet found")
                 return None
             
-            # Get or create user
             user = await self.user_repo.get_or_create(transaction_dict["from_address"])
             
-            # Get deposit address info for bet parameters
-            deposit_addrs_col = get_deposit_addresses_collection()
-            deposit_addr = await deposit_addrs_col.find_one({"address": transaction_dict["to_address"]})
+            target_address = transaction_dict["to_address"]
             
-            # Determine multiplier
-            multiplier = deposit_addr.get("expected_multiplier", 2.0) if deposit_addr else 2.0
+            wallet = await self.wallet_service.get_wallet_by_address(target_address)
+            if not wallet:
+                logger.error(f"Wallet not found for address {target_address[:10]}... - cannot create bet")
+                return None
+            
+            multiplier_int = wallet["multiplier"]
+            multiplier_float = float(multiplier_int)
+            
+            logger.info(f"[BET] Using {multiplier_int}x wallet for bet")
             
             # Get or create active seed for user
             seeds_col = get_seeds_collection()
@@ -84,23 +90,23 @@ class BetService:
                 seed_doc["_id"] = result.inserted_id
                 seed = seed_doc
             
-            # Validate bet parameters
-            is_valid, error = self.fair_service.validate_bet_params(transaction_dict["amount"], multiplier)
+            is_valid, error = self.fair_service.validate_bet_params(transaction_dict["amount"], multiplier_float)
             
             if not is_valid:
                 logger.error(f"Invalid bet parameters: {error}")
                 await self.tx_repo.mark_processed(transaction_dict["txid"])
                 return None
             
-            # Calculate win chance
-            win_chance = self.fair_service.calculate_win_chance(multiplier)
+            win_chance = self.fair_service.calculate_win_chance(multiplier_float)
             
-            # Create bet
             bet_doc = {
                 "user_id": user["_id"],
                 "seed_id": seed["_id"],
                 "bet_amount": transaction_dict["amount"],
-                "target_multiplier": multiplier,
+                "target_multiplier": multiplier_float,
+                "multiplier": multiplier_int,
+                "target_address": target_address,
+                "wallet_id": wallet["_id"],
                 "win_chance": win_chance,
                 "nonce": seed["nonce"],
                 "roll_result": None,
@@ -120,20 +126,14 @@ class BetService:
             bet_id = await self.bet_repo.insert_one(bet_doc)
             bet_doc["_id"] = bet_id
             
-            # Link transaction to bet
             await self.tx_repo.mark_processed(transaction_dict["txid"], bet_id)
             
-            # Mark deposit address as used
-            if deposit_addr:
-                await deposit_addrs_col.update_one(
-                    {"_id": deposit_addr["_id"]},
-                    {"$set": {
-                        "is_used": True,
-                        "used_at": datetime.utcnow()
-                    }}
-                )
+            await self.wallet_service.record_transaction(
+                wallet_id=str(wallet["_id"]),
+                received=transaction_dict["amount"]
+            )
             
-            logger.info(f"[OK] Created bet {bet_doc['_id']} from transaction {transaction_dict['txid']}")
+            logger.info(f"[OK] Created {multiplier_int}x bet {bet_doc['_id']} from transaction {transaction_dict['txid']}")
             
             # Check if should roll immediately
             if transaction_dict.get("confirmations", 0) >= config.MIN_CONFIRMATIONS_PAYOUT:

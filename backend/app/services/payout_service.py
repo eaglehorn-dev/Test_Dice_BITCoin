@@ -1,5 +1,6 @@
 """
 Payout Service - Business logic for Bitcoin payouts
+Uses encrypted wallet vault for dynamic key management
 """
 from typing import Optional, Dict, Any, List
 from datetime import datetime
@@ -13,22 +14,20 @@ from app.repository.payout_repository import PayoutRepository
 from app.repository.bet_repository import BetRepository
 from app.repository.transaction_repository import TransactionRepository
 from app.repository.user_repository import UserRepository
+from app.services.wallet_service import WalletService
 
 
 class PayoutService:
-    """Service for payout processing"""
+    """Service for payout processing with encrypted wallet vault"""
     
     def __init__(self):
         self.payout_repo = PayoutRepository()
         self.bet_repo = BetRepository()
         self.tx_repo = TransactionRepository()
         self.user_repo = UserRepository()
+        self.wallet_service = WalletService()
         
-        self.house_private_key = config.HOUSE_PRIVATE_KEY
-        self.house_address = config.HOUSE_ADDRESS
         self.network = config.NETWORK
-        
-        # API endpoints
         self.mempool_api = config.MEMPOOL_SPACE_API
         self.blockstream_api = config.BLOCKSTREAM_API
     
@@ -175,13 +174,16 @@ class PayoutService:
             
             await self.payout_repo.increment_retry_count(payout_dict["_id"])
             
-            # Send Bitcoin transaction
             logger.info(f"Broadcasting payout {payout_dict['_id']}: {payout_dict['amount']} sats to {payout_dict['to_address']}")
+            
+            bet = await self.bet_repo.find_by_id(payout_dict["bet_id"])
+            if not bet:
+                raise PayoutException("Bet not found for payout")
             
             result = await self._send_bitcoin(
                 to_address=payout_dict["to_address"],
                 amount_satoshis=payout_dict["amount"],
-                from_private_key=self.house_private_key
+                bet_dict=bet
             )
             
             if result and result.get('tx', {}).get('hash'):
@@ -278,24 +280,42 @@ class PayoutService:
             logger.error(f"[PAYOUT] Error broadcasting transaction: {e}")
             return None
     
-    async def _send_bitcoin(self, to_address: str, amount_satoshis: int, from_private_key: str) -> Optional[dict]:
-        """Send Bitcoin using bitcoinlib"""
+    async def _send_bitcoin(self, to_address: str, amount_satoshis: int, bet_dict: Dict[str, Any]) -> Optional[dict]:
+        """
+        Send Bitcoin using encrypted wallet vault
+        
+        Security:
+        - Private key decrypted only in memory during signing
+        - Key immediately discarded after use
+        - Never logged or persisted
+        """
         try:
             from bitcoinlib.keys import Key
             from bitcoinlib.transactions import Transaction as BTCTransaction, Input, Output
             
             logger.info(f"[PAYOUT] Creating transaction: {amount_satoshis} sats to {to_address[:10]}...")
             
-            # Wait briefly for UTXO index to update (race condition fix)
+            target_address = bet_dict.get("target_address")
+            if not target_address:
+                logger.error(f"[PAYOUT] No target_address in bet {bet_dict['_id']}")
+                raise PayoutException("Bet missing target_address - cannot determine wallet")
+            
+            wallet = await self.wallet_service.get_wallet_by_address(target_address)
+            if not wallet:
+                logger.error(f"[PAYOUT] Wallet not found for address {target_address[:10]}...")
+                raise PayoutException(f"Wallet not found for address {target_address}")
+            
+            logger.info(f"[PAYOUT] Using {wallet['multiplier']}x wallet: {wallet['address'][:10]}...")
+            
             import asyncio
             await asyncio.sleep(3)
             logger.info(f"[PAYOUT] Waited 3s for UTXO index to update")
             
-            # Get UTXOs for house address
-            utxos = await self._get_utxos(self.house_address)
+            utxos = await self._get_utxos(wallet['address'])
             
             if not utxos:
-                logger.error(f"[PAYOUT] No UTXOs available for {self.house_address}")
+                logger.error(f"[PAYOUT] No UTXOs available for {wallet['address'][:10]}...")
+                await self.wallet_service.mark_wallet_depleted(str(wallet['_id']), is_depleted=True)
                 raise InsufficientFundsException("No UTXOs available")
             
             # Select UTXOs
@@ -316,15 +336,19 @@ class PayoutService:
                     logger.error(f"[PAYOUT] Insufficient funds: need {amount_satoshis + fee_buffer}, have {total}")
                     raise InsufficientFundsException(f"Insufficient funds: need {amount_satoshis + fee_buffer}, have {total}")
             
-            # Create key from private key
-            network = 'testnet' if self.network != 'mainnet' else 'bitcoin'
-            key = Key(from_private_key, network=network)
+            private_key_wif = self.wallet_service.decrypt_private_key(wallet)
             
-            # Calculate transaction fee
+            logger.info(f"[PAYOUT] 🔓 Decrypted wallet key (in memory only)")
+            
+            network = 'testnet' if self.network != 'mainnet' else 'bitcoin'
+            key = Key(private_key_wif, network=network)
+            
+            del private_key_wif
+            logger.info(f"[PAYOUT] 🔒 Discarded decrypted key from memory")
+            
             fee = config.DEFAULT_TX_FEE_SATOSHIS
             
-            # Create transaction inputs (SegWit-aware)
-            witness_type = 'segwit' if self.house_address.startswith('bc1') or self.house_address.startswith('tb1') else 'legacy'
+            witness_type = 'segwit' if wallet['address'].startswith('bc1') or wallet['address'].startswith('tb1') else 'legacy'
             
             inputs = []
             if isinstance(selected_utxo, list):
@@ -347,29 +371,30 @@ class PayoutService:
                 ))
                 total_input = selected_utxo['value']
             
-            # Create transaction outputs
             outputs = [
                 Output(amount_satoshis, address=to_address, network=network)
             ]
             
-            # Add change output if needed
             change = total_input - amount_satoshis - fee
             if change > config.DUST_LIMIT_SATOSHIS:
-                outputs.append(Output(change, address=self.house_address, network=network))
+                outputs.append(Output(change, address=wallet['address'], network=network))
             
-            # Create and sign transaction
             tx = BTCTransaction(inputs=inputs, outputs=outputs, network=network, witness_type=witness_type)
             tx.sign()
             
-            # Get raw transaction hex
             raw_tx = tx.raw_hex()
             
-            logger.info(f"[PAYOUT] Transaction signed, size: {len(raw_tx)//2} bytes")
+            logger.info(f"[PAYOUT] ✅ Transaction signed, size: {len(raw_tx)//2} bytes")
             
-            # Broadcast transaction
+            await self.wallet_service.record_transaction(
+                wallet_id=str(wallet['_id']),
+                sent=amount_satoshis + fee
+            )
+            
             txid = await self._broadcast_raw_tx(raw_tx)
             
             if txid:
+                logger.info(f"[PAYOUT] 🚀 Broadcast complete: {txid[:16]}...")
                 return {
                     'tx': {
                         'hash': txid,
