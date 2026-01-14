@@ -227,21 +227,15 @@ class Settings(BaseSettings):
     def print_startup_banner(self):
         """Print visual startup banner indicating environment"""
         mode = "PRODUCTION" if self.ENV_CURRENT else "TEST"
-        color_code = "\033[91m" if self.ENV_CURRENT else "\033[93m"  # Red for prod, Yellow for test
-        reset_code = "\033[0m"
         
         banner = f"""
-{color_code}
-╔══════════════════════════════════════════════════════════╗
-║                                                          ║
-║  {'🚨 RUNNING IN PRODUCTION MODE 🚨' if self.ENV_CURRENT else '🧪 RUNNING IN TEST MODE 🧪':^56}  ║
-║                                                          ║
-║  Database: {self.MONGODB_DB_NAME:<44}  ║
-║  Network:  {self.NETWORK:<44}  ║
-║  API:      {self.MEMPOOL_SPACE_API[:44]:<44}  ║
-║                                                          ║
-╚══════════════════════════════════════════════════════════╝
-{reset_code}
+{'='*60}
+{'[!] RUNNING IN PRODUCTION MODE' if self.ENV_CURRENT else '[?] RUNNING IN TEST MODE':^60}
+{'='*60}
+Database: {self.MONGODB_DB_NAME}
+Network:  {self.NETWORK}
+API:      {self.MEMPOOL_SPACE_API[:44]}
+{'='*60}
 """
         print(banner)
         logger.info(f"[CONFIG] Environment: {mode}")
