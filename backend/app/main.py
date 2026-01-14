@@ -16,16 +16,18 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from loguru import logger
 
-from .config import config
-from .database import (
+from app.core.config import config
+from app.models.database import (
     init_db, disconnect_db, get_database,
     get_users_collection, get_seeds_collection, get_bets_collection,
-    get_transactions_collection, get_payouts_collection, get_deposit_addresses_collection,
-    UserModel, SeedModel, BetModel, TransactionModel, PayoutModel, DepositAddressModel
+    get_transactions_collection, get_payouts_collection, get_deposit_addresses_collection
 )
-from .provably_fair import ProvablyFair, generate_new_seed_pair
+from app.models import UserModel, SeedModel, BetModel, TransactionModel, PayoutModel, DepositAddressModel
+from app.services.provably_fair_service import ProvablyFairService, generate_new_seed_pair
+from app.services.bet_service import BetService
+from app.services.payout_service import PayoutService
+from app.utils.websocket_manager import ConnectionManager
 from .blockchain import TransactionDetector, TransactionMonitor
-from .payout import PayoutEngine, BetProcessor
 
 # Setup Loguru logging
 logger.remove()  # Remove default handler
@@ -49,35 +51,7 @@ if config.ENABLE_LOGGING:
 # Global transaction monitor
 tx_monitor = None
 
-# WebSocket connection manager
-class ConnectionManager:
-    def __init__(self):
-        self.active_connections: List[WebSocket] = []
-
-    async def connect(self, websocket: WebSocket):
-        await websocket.accept()
-        self.active_connections.append(websocket)
-        logger.info(f"WebSocket client connected. Total: {len(self.active_connections)}")
-
-    def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
-        logger.info(f"WebSocket client disconnected. Total: {len(self.active_connections)}")
-
-    async def broadcast(self, message: dict):
-        """Broadcast message to all connected clients"""
-        disconnected = []
-        for connection in self.active_connections:
-            try:
-                await connection.send_json(message)
-            except Exception as e:
-                logger.error(f"Error sending to WebSocket client: {e}")
-                disconnected.append(connection)
-        
-        # Remove disconnected clients
-        for connection in disconnected:
-            if connection in self.active_connections:
-                self.active_connections.remove(connection)
-
+# WebSocket connection manager (imported from utils)
 manager = ConnectionManager()
 
 
@@ -454,8 +428,8 @@ async def submit_transaction(
             raise HTTPException(status_code=400, detail="Transaction not found or invalid")
         
         # Process transaction into bet
-        processor = BetProcessor()
-        bet = await processor.process_detected_transaction(tx)
+        bet_service = BetService()
+        bet = await bet_service.process_detected_transaction(tx)
         
         if not bet:
             raise HTTPException(status_code=400, detail="Failed to process transaction")
@@ -567,7 +541,7 @@ async def verify_bet(request: VerifyBetRequest):
             raise HTTPException(status_code=404, detail="Seed not found")
         
         # Generate verification data
-        verification = ProvablyFair.generate_verification_data(
+        verification = ProvablyFairService.generate_verification_data(
             server_seed=seed["server_seed"],
             server_seed_hash=seed["server_seed_hash"],
             client_seed=seed["client_seed"],
@@ -629,8 +603,8 @@ async def get_recent_bets(limit: int = 20):
 async def process_pending():
     """Admin endpoint to process pending bets"""
     try:
-        processor = BetProcessor()
-        processed = await processor.process_pending_bets()
+        bet_service = BetService()
+        processed = await bet_service.process_pending_bets()
         
         return {
             "processed": processed,
@@ -646,8 +620,8 @@ async def process_pending():
 async def retry_payouts():
     """Admin endpoint to retry failed payouts"""
     try:
-        payout_engine = PayoutEngine()
-        retried = await payout_engine.retry_failed_payouts()
+        payout_service = PayoutService()
+        retried = await payout_service.retry_failed_payouts()
         
         return {
             "retried": retried,
@@ -682,8 +656,8 @@ async def manually_process_transaction(txid: str):
             )
         
         # Process into bet
-        processor = BetProcessor()
-        bet = await processor.process_detected_transaction(tx)
+        bet_service = BetService()
+        bet = await bet_service.process_detected_transaction(tx)
         
         if not bet:
             raise HTTPException(

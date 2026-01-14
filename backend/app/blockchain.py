@@ -11,13 +11,14 @@ import websockets
 from loguru import logger
 from bson import ObjectId
 
-from .config import config
-from .database import (
+from app.core.config import config
+from app.core.exceptions import BlockchainException, WebSocketException
+from app.models.database import (
     get_transactions_collection,
     get_deposit_addresses_collection,
-    TransactionModel,
-    DepositAddressModel
+    get_users_collection
 )
+from app.models import TransactionModel, DepositAddressModel
 
 
 class TransactionDetector:
@@ -435,12 +436,12 @@ class MempoolWebSocket:
                         if tx:
                             logger.info(f"✅ [WEBSOCKET] Transaction saved to database")
                             
-                            # Import BetProcessor here to avoid circular imports
-                            from .payout import BetProcessor
+                            # Import BetService here to avoid circular imports
+                            from app.services.bet_service import BetService
                             
                             # Process into bet
-                            processor = BetProcessor()
-                            bet = await processor.process_detected_transaction(tx)
+                            bet_service = BetService()
+                            bet = await bet_service.process_detected_transaction(tx)
                             
                             if bet:
                                 result = "WIN 🎉" if bet.get("is_win") else "LOSS"
