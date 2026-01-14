@@ -1,0 +1,205 @@
+╔══════════════════════════════════════════════════════════╗
+║                                                          ║
+║        Bitcoin Dice Game - Quick Start Guide            ║
+║                                                          ║
+╚══════════════════════════════════════════════════════════╝
+
+🚀 STEP-BY-STEP STARTUP SEQUENCE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STEP 1: Start MongoDB
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Windows:
+  net start MongoDB
+
+Linux/Mac:
+  sudo systemctl start mongod
+
+
+STEP 2: Setup MongoDB (FIRST TIME ONLY)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+cd D:\Dice2
+python _temp_setup_mongodb.py
+
+  → Creates dice_prod and dice_test databases
+  → Creates collections and indexes
+  → Run only once!
+
+
+STEP 3: Generate Vault Wallets (FIRST TIME ONLY)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+cd backend
+python generate_wallets.py
+
+  → Creates encrypted 2x, 3x, 5x, 10x, 100x wallets
+  → Stores in MongoDB
+  → Run only once per environment!
+
+
+STEP 4: Start Main Dice Game Backend
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+cd D:\Dice2\backend
+python -m uvicorn app.main:app --port 8000
+
+  ✓ Runs on: http://localhost:8000
+  ✓ API Docs: http://localhost:8000/docs
+  ✓ Health: http://localhost:8000/api/health
+
+
+STEP 5: Start Admin Backend
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+cd D:\Dice2\admin_backend
+python -m uvicorn app.main:app --port 8001
+
+  ✓ Runs on: http://localhost:8001
+  ✓ API Docs: http://localhost:8001/docs
+  ✓ Health: http://localhost:8001/admin/health
+
+
+STEP 6: Start Main Dice Game Frontend
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+cd D:\Dice2\frontend
+npm start
+
+  ✓ Runs on: http://localhost:3000
+  ✓ User-facing dice game
+
+
+STEP 7: Start Admin Frontend
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+cd D:\Dice2\admin_frontend
+npm start
+
+  ✓ Runs on: http://localhost:3001
+  ✓ Admin dashboard (protected)
+
+
+📊 FULL SYSTEM MAP
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+PORT 27017: MongoDB (Database)
+PORT 8000:  Main Dice Game Backend (API)
+PORT 8001:  Admin Backend (API)
+PORT 3000:  Dice Game Frontend (User-facing)
+PORT 3001:  Admin Frontend (Dashboard)
+
+
+🔍 VERIFY EVERYTHING IS RUNNING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Check Main Backend:
+  http://localhost:8000/api/health
+
+Expected Response:
+{
+  "status": "healthy",
+  "database": "connected",
+  "monitor": "running",
+  "network": "testnet",
+  "vault_system": {
+    "wallets_monitored": 5,
+    "status": "active"
+  }
+}
+
+
+Check Admin Backend:
+  http://localhost:8001/admin/health
+
+Expected Response:
+{
+  "status": "healthy",
+  "service": "admin-backend"
+}
+
+
+Check Main Frontend:
+  http://localhost:3000
+
+Expected:
+  → Dice game loads
+  → QR code displays
+  → Multiplier slider works
+
+
+Check Admin Frontend:
+  http://localhost:3001
+
+Expected:
+  → Admin dashboard loads
+  → Charts display
+  → Wallet grid shows
+
+
+⚙️ ENVIRONMENT CONFIGURATION
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+For TESTNET (Development):
+  backend/.env:
+    ENV_CURRENT=false
+
+For MAINNET (Production):
+  backend/.env:
+    ENV_CURRENT=true
+
+
+🐛 TROUBLESHOOTING
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Error: "No active vault wallets found"
+  → Run: backend/generate_wallets.py
+
+Error: "Connection refused" (MongoDB)
+  → Start MongoDB first
+
+Error: "Module not found: axios"
+  → cd admin_frontend
+  → npm install
+
+Error: "Port already in use"
+  → Another process is using the port
+  → Kill it or change port in config
+
+Error: "API key required"
+  → Set ADMIN_API_KEY in admin_backend/.env
+
+
+🎯 RECOMMENDED STARTUP ORDER
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. MongoDB
+2. Main Backend (port 8000)
+3. Admin Backend (port 8001)
+4. Main Frontend (port 3000)
+5. Admin Frontend (port 3001)
+
+
+💡 QUICK COMMANDS (Windows)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# Open 5 terminals and run:
+
+# Terminal 1 - Main Backend
+cd D:\Dice2\backend && python -m uvicorn app.main:app --port 8000
+
+# Terminal 2 - Admin Backend
+cd D:\Dice2\admin_backend && python -m uvicorn app.main:app --port 8001
+
+# Terminal 3 - Main Frontend
+cd D:\Dice2\frontend && npm start
+
+# Terminal 4 - Admin Frontend
+cd D:\Dice2\admin_frontend && npm start
+
+# Terminal 5 - Monitor logs
+cd D:\Dice2\backend && tail -f dice_game.log
+
+
+✅ SUCCESS INDICATORS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✓ Main backend shows: "🧪 RUNNING IN TEST MODE 🧪"
+✓ Main backend shows: "Monitoring 5 vault wallet(s)"
+✓ Admin frontend shows charts and wallet grid
+✓ Main frontend shows QR code for deposits
+✓ All health endpoints return 200 OK

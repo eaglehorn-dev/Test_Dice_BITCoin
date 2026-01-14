@@ -1,0 +1,101 @@
+╔══════════════════════════════════════════════════════════╗
+║                                                          ║
+║        MongoDB Database Setup Instructions              ║
+║                                                          ║
+╚══════════════════════════════════════════════════════════╝
+
+STEP 1: Make sure MongoDB is running
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Windows:
+  - Open Services (services.msc)
+  - Find "MongoDB Server"
+  - Make sure it's running
+  
+  OR run:
+  net start MongoDB
+
+Linux/Mac:
+  sudo systemctl start mongod
+  
+  OR
+  brew services start mongodb-community
+
+
+STEP 2: Run the setup script
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+cd D:\Dice2
+python _temp_setup_mongodb.py
+
+
+WHAT IT DOES:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Creates 2 databases:
+  ✓ dice_prod (for mainnet/production)
+  ✓ dice_test (for testnet/development)
+
+Creates 6 collections in each:
+  ✓ wallets - Encrypted vault wallets (2x, 3x, 5x, etc.)
+  ✓ bets - All bet records
+  ✓ transactions - Detected blockchain transactions
+  ✓ payouts - Payout records
+  ✓ users - User statistics
+  ✓ deposit_addresses - User-specific addresses (if needed)
+
+Creates indexes for:
+  ✓ Fast lookups by address
+  ✓ Fast filtering by multiplier
+  ✓ Fast queries by status
+  ✓ Fast date-range queries
+  ✓ Unique constraints on tx_hash, address, etc.
+
+
+AFTER SETUP:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. Generate vault wallets:
+   cd backend
+   python generate_wallets.py
+
+2. Delete these temporary files:
+   - _temp_setup_mongodb.py
+   - _SETUP_INSTRUCTIONS.txt
+
+3. Start your backend:
+   cd backend
+   python -m uvicorn app.main:app --port 8000
+
+
+VERIFY SETUP:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Using MongoDB Compass or mongo shell:
+
+  # Connect to MongoDB
+  mongo
+
+  # Check databases
+  show dbs
+
+  # Check collections
+  use dice_prod
+  show collections
+
+  # Check indexes on bets collection
+  db.bets.getIndexes()
+
+
+TROUBLESHOOTING:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Error: "No module named 'motor'"
+  → pip install motor
+
+Error: "Connection refused"
+  → MongoDB is not running. Start it first.
+
+Error: "Authentication failed"
+  → Update MONGODB_URL in the script if your MongoDB has auth enabled
+  → Example: mongodb://username:password@localhost:27017

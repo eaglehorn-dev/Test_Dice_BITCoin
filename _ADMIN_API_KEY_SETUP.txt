@@ -1,0 +1,97 @@
+╔══════════════════════════════════════════════════════════╗
+║                                                          ║
+║        Admin API Key Setup - IMPORTANT                  ║
+║                                                          ║
+╚══════════════════════════════════════════════════════════╝
+
+✅ ADMIN API KEY GENERATED AND ADDED TO backend/.env
+═══════════════════════════════════════════════════════════
+
+Your Admin API Key:
+───────────────────────────────────────────────────────────
+d4ce002055be58b0adfc5d674221e4c6f23d5c9a501e08c9bff3cc6e09f6fdc4
+
+
+🔒 SECURITY NOTES:
+═══════════════════════════════════════════════════════════
+
+1. This key is now in backend/.env (shared with main backend)
+2. KEEP THIS SECRET! Never commit to Git (.env is in .gitignore)
+3. Use this key to access the admin frontend
+4. Change it in production!
+
+
+📋 HOW TO USE THE ADMIN FRONTEND:
+═══════════════════════════════════════════════════════════
+
+When you open the admin frontend (http://localhost:3001):
+
+1. You'll see a login screen (or API key prompt)
+2. Enter the API key above
+3. Access the admin dashboard
+
+
+🔧 TO CHANGE THE API KEY:
+═══════════════════════════════════════════════════════════
+
+1. Generate new key:
+   python -c "import secrets; print(secrets.token_hex(32))"
+
+2. Update backend/.env:
+   ADMIN_API_KEY=your-new-key-here
+
+3. Restart admin backend
+
+
+✅ ADMIN BACKEND STATUS:
+═══════════════════════════════════════════════════════════
+
+✓ Pydantic validation errors FIXED
+✓ Unicode encoding errors FIXED
+✓ Admin API key ADDED
+✓ Ready to start!
+
+
+🚀 START ADMIN BACKEND NOW:
+═══════════════════════════════════════════════════════════
+
+cd D:\Dice2\admin_backend
+.\start-admin-backend.bat
+
+
+Expected Output:
+───────────────────────────────────────────────────────────
+============================================================
+                     ADMIN - TEST MODE                      
+============================================================
+Database:      dice_test
+Network:       testnet
+Cold Storage:  not set
+API:           https://mempool.space/testnet/api
+============================================================
+
+INFO:     Uvicorn running on http://0.0.0.0:8001
+INFO:     Application startup complete.
+
+
+🌐 ADMIN ENDPOINTS:
+═══════════════════════════════════════════════════════════
+
+Health Check:     http://localhost:8001/admin/health
+API Docs:         http://localhost:8001/docs
+Dashboard API:    http://localhost:8001/admin/dashboard
+Wallets API:      http://localhost:8001/admin/wallets
+Generate Wallet:  http://localhost:8001/admin/wallet/generate
+
+
+🔐 ALL ADMIN ROUTES REQUIRE:
+═══════════════════════════════════════════════════════════
+
+Header: X-API-Key: d4ce002055be58b0adfc5d674221e4c6f23d5c9a501e08c9bff3cc6e09f6fdc4
+
+
+📝 DELETE THIS FILE AFTER SETUP!
+═══════════════════════════════════════════════════════════
+
+This file contains your admin API key. Delete it once you've
+saved the key in a secure location (password manager).

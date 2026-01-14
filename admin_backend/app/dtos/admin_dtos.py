@@ -77,11 +77,12 @@ class DashboardResponse(BaseModel):
     """Complete dashboard data"""
     treasury_balance_sats: int
     treasury_balance_btc: float
-    treasury_balance_usd: float
-    btc_price_usd: float
+    treasury_balance_usd: Optional[float] = None
+    btc_price_usd: Optional[float] = None
     today_stats: StatsResponse
     week_stats: StatsResponse
     month_stats: StatsResponse
     all_time_stats: StatsResponse
     wallets: List[WalletInfo]
     volume_by_multiplier: List[MultiplierVolumeResponse]
+    is_testnet: bool = False
