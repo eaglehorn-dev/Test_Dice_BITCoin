@@ -24,11 +24,12 @@ class WalletService:
         """
         try:
             key = Key(network=self.network)
-            address = key.address
+            # Get address (check if it's a method or property)
+            address = key.address() if callable(key.address) else key.address
             # Get WIF (check if it's a method or property)
             private_key_wif = key.wif() if callable(key.wif) else key.wif
             
-            logger.info(f"[ADMIN] Generated key, WIF type: {type(private_key_wif)}, Address: {address[:10]}...")
+            logger.info(f"[ADMIN] Generated {multiplier}x wallet")
             
             encrypted_private_key = self.crypto_service.encrypt(private_key_wif)
             
