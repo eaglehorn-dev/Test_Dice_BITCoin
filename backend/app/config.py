@@ -17,8 +17,9 @@ class Config:
     HOUSE_ADDRESS: str = os.getenv("HOUSE_ADDRESS", "")
     HOUSE_MNEMONIC: Optional[str] = os.getenv("HOUSE_MNEMONIC")
     
-    # Database
-    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./dice_game.db")
+    # Database (MongoDB)
+    MONGODB_URL: str = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
+    MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME", "dice_game")
     
     # Game Settings
     HOUSE_EDGE: float = float(os.getenv("HOUSE_EDGE", "0.02"))

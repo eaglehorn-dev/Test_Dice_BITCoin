@@ -5,20 +5,26 @@ Handles Bitcoin transaction creation and broadcasting
 """
 from typing import Optional, Tuple, List, Dict, Any
 from datetime import datetime
-from sqlalchemy.orm import Session
+from bson import ObjectId
 import httpx
 from loguru import logger
 
 from .config import config
-from .database import Bet, Payout, Transaction
+from .database import (
+    get_bets_collection,
+    get_payouts_collection,
+    get_transactions_collection,
+    get_users_collection,
+    get_seeds_collection,
+    get_deposit_addresses_collection
+)
 from .provably_fair import ProvablyFair
 
 
 class PayoutEngine:
     """Automated payout processing engine"""
     
-    def __init__(self, db: Session):
-        self.db = db
+    def __init__(self):
         self.house_private_key = config.HOUSE_PRIVATE_KEY
         self.house_address = config.HOUSE_ADDRESS
         self.network = config.NETWORK
@@ -27,130 +33,133 @@ class PayoutEngine:
         self.mempool_api = config.MEMPOOL_SPACE_API
         self.blockstream_api = config.BLOCKSTREAM_API
     
-    def process_winning_bet(self, bet: Bet) -> Optional[Payout]:
+    async def process_winning_bet(self, bet_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Process a winning bet and create payout
         
         Args:
-            bet: Bet object that won
+            bet_dict: Bet dictionary that won
             
         Returns:
-            Payout object or None if failed
+            Payout dictionary or None if failed
         """
         try:
             # Verify bet is eligible for payout
-            if not self._is_eligible_for_payout(bet):
-                logger.warning(f"Bet {bet.id} not eligible for payout")
+            if not await self._is_eligible_for_payout(bet_dict):
+                logger.warning(f"Bet {bet_dict['_id']} not eligible for payout")
                 return None
             
             # Check if payout already exists
-            existing_payout = self.db.query(Payout).filter(
-                Payout.bet_id == bet.id
-            ).first()
+            payouts_col = get_payouts_collection()
+            existing_payout = await payouts_col.find_one({"bet_id": bet_dict["_id"]})
             
             if existing_payout:
-                logger.info(f"Payout already exists for bet {bet.id}")
+                logger.info(f"Payout already exists for bet {bet_dict['_id']}")
                 return existing_payout
             
             # Determine recipient address
-            recipient_address = self._get_recipient_address(bet)
+            recipient_address = await self._get_recipient_address(bet_dict)
             
             if not recipient_address:
-                logger.error(f"Cannot determine recipient address for bet {bet.id}")
+                logger.error(f"Cannot determine recipient address for bet {bet_dict['_id']}")
                 return None
             
             # Create payout record
-            payout = Payout(
-                bet_id=bet.id,
-                amount=bet.payout_amount,
-                to_address=recipient_address,
-                status='pending'
-            )
+            payout_doc = {
+                "bet_id": bet_dict["_id"],
+                "amount": bet_dict["payout_amount"],
+                "to_address": recipient_address,
+                "status": "pending",
+                "error_message": None,
+                "network_fee": None,
+                "retry_count": 0,
+                "max_retries": 3,
+                "txid": None,
+                "created_at": datetime.utcnow(),
+                "broadcast_at": None,
+                "confirmed_at": None
+            }
             
-            self.db.add(payout)
-            self.db.commit()
-            self.db.refresh(payout)
+            result = await payouts_col.insert_one(payout_doc)
+            payout_doc["_id"] = result.inserted_id
             
-            logger.info(f"[OK] Created payout {payout.id} for bet {bet.id}: {payout.amount} sats to {recipient_address}")
+            logger.info(f"[OK] Created payout {payout_doc['_id']} for bet {bet_dict['_id']}: {payout_doc['amount']} sats to {recipient_address}")
             
-            # Attempt to broadcast payout
-            # Note: Broadcasting is now async and will be handled in background
-            # Store IDs instead of objects to avoid session issues
+            # Attempt to broadcast payout in background
             import asyncio
-            payout_id = payout.id
-            bet_id = bet.id
+            payout_id = payout_doc["_id"]
+            bet_id = bet_dict["_id"]
             asyncio.create_task(self._async_broadcast_and_update(payout_id, bet_id))
             
-            return payout
+            return payout_doc
             
         except Exception as e:
-            logger.error(f"Error processing winning bet {bet.id}: {e}")
-            self.db.rollback()
+            logger.error(f"Error processing winning bet {bet_dict['_id']}: {e}")
             return None
     
-    async def _async_broadcast_and_update(self, payout_id: int, bet_id: int):
+    async def _async_broadcast_and_update(self, payout_id: ObjectId, bet_id: ObjectId):
         """Async wrapper to broadcast payout and update bet status"""
         try:
-            # Get new database session for async task
-            from .database import get_db
-            db = next(get_db())
+            # Fetch objects from database
+            payouts_col = get_payouts_collection()
+            bets_col = get_bets_collection()
             
-            try:
-                # Fetch objects in new session
-                payout = db.query(Payout).filter(Payout.id == payout_id).first()
-                bet = db.query(Bet).filter(Bet.id == bet_id).first()
-                
-                if not payout or not bet:
-                    logger.error(f"Payout {payout_id} or Bet {bet_id} not found")
-                    return
-                
-                # Create new payout engine with this session
-                engine = PayoutEngine(db)
-                success = await engine._broadcast_payout(payout)
-                
-                if success:
-                    bet.status = 'paid'
-                    bet.paid_at = datetime.utcnow()
-                    db.commit()
-                    logger.info(f"[OK] Bet {bet.id} marked as paid")
-                    
-            finally:
-                db.close()
+            payout = await payouts_col.find_one({"_id": payout_id})
+            bet = await bets_col.find_one({"_id": bet_id})
+            
+            if not payout or not bet:
+                logger.error(f"Payout {payout_id} or Bet {bet_id} not found")
+                return
+            
+            # Broadcast payout
+            success = await self._broadcast_payout(payout)
+            
+            if success:
+                await bets_col.update_one(
+                    {"_id": bet_id},
+                    {"$set": {
+                        "status": "paid",
+                        "paid_at": datetime.utcnow()
+                    }}
+                )
+                logger.info(f"[OK] Bet {bet_id} marked as paid")
                 
         except Exception as e:
             logger.error(f"Error in async broadcast wrapper: {e}")
             import traceback
             logger.error(traceback.format_exc())
     
-    def _is_eligible_for_payout(self, bet: Bet) -> bool:
+    async def _is_eligible_for_payout(self, bet_dict: Dict[str, Any]) -> bool:
         """Check if bet is eligible for payout"""
         
         # Must be a win
-        if not bet.is_win:
+        if not bet_dict.get("is_win"):
             return False
         
         # Must have payout amount
-        if not bet.payout_amount or bet.payout_amount <= 0:
+        if not bet_dict.get("payout_amount") or bet_dict["payout_amount"] <= 0:
             return False
         
         # Must be confirmed
-        if bet.status not in ['confirmed', 'rolled']:
+        if bet_dict.get("status") not in ["confirmed", "rolled"]:
             return False
         
         # Must not already be paid
-        if bet.status == 'paid':
+        if bet_dict.get("status") == "paid":
             return False
         
         # Check transaction confirmations if required
         if config.MIN_CONFIRMATIONS_PAYOUT > 0:
-            if bet.transaction:
-                if bet.transaction.confirmations < config.MIN_CONFIRMATIONS_PAYOUT:
-                    logger.info(f"Bet {bet.id} waiting for confirmations: {bet.transaction.confirmations}/{config.MIN_CONFIRMATIONS_PAYOUT}")
+            if bet_dict.get("deposit_txid"):
+                txs_col = get_transactions_collection()
+                tx = await txs_col.find_one({"txid": bet_dict["deposit_txid"]})
+                if tx and tx.get("confirmations", 0) < config.MIN_CONFIRMATIONS_PAYOUT:
+                    logger.info(f"Bet {bet_dict['_id']} waiting for confirmations: {tx.get('confirmations', 0)}/{config.MIN_CONFIRMATIONS_PAYOUT}")
                     return False
         
         return True
     
-    def _get_recipient_address(self, bet: Bet) -> Optional[str]:
+    async def _get_recipient_address(self, bet_dict: Dict[str, Any]) -> Optional[str]:
         """
         Determine recipient address for payout
         
@@ -159,82 +168,109 @@ class PayoutEngine:
         2. User's primary address
         
         Args:
-            bet: Bet object
+            bet_dict: Bet dictionary
             
         Returns:
             Bitcoin address or None
         """
         # Try to get from transaction
-        if bet.transaction and bet.transaction.from_address:
-            return bet.transaction.from_address
+        if bet_dict.get("deposit_txid"):
+            txs_col = get_transactions_collection()
+            tx = await txs_col.find_one({"txid": bet_dict["deposit_txid"]})
+            if tx and tx.get("from_address"):
+                return tx["from_address"]
         
         # Try to get from user
-        if bet.user and bet.user.address:
-            return bet.user.address
+        if bet_dict.get("user_id"):
+            users_col = get_users_collection()
+            user = await users_col.find_one({"_id": bet_dict["user_id"]})
+            if user and user.get("address"):
+                return user["address"]
         
         return None
     
-    async def _broadcast_payout(self, payout: Payout) -> bool:
+    async def _broadcast_payout(self, payout_dict: Dict[str, Any]) -> bool:
         """
         Broadcast payout transaction to network
         
         Args:
-            payout: Payout object
+            payout_dict: Payout dictionary
             
         Returns:
             True if successful
         """
         try:
-            if payout.retry_count >= payout.max_retries:
-                logger.error(f"Payout {payout.id} exceeded max retries")
-                payout.status = 'failed'
-                payout.error_message = "Max retries exceeded"
-                self.db.commit()
+            payouts_col = get_payouts_collection()
+            
+            if payout_dict.get("retry_count", 0) >= payout_dict.get("max_retries", 3):
+                logger.error(f"Payout {payout_dict['_id']} exceeded max retries")
+                await payouts_col.update_one(
+                    {"_id": payout_dict["_id"]},
+                    {"$set": {
+                        "status": "failed",
+                        "error_message": "Max retries exceeded"
+                    }}
+                )
                 return False
             
-            payout.retry_count += 1
+            await payouts_col.update_one(
+                {"_id": payout_dict["_id"]},
+                {"$inc": {"retry_count": 1}}
+            )
             
             # Send Bitcoin transaction using bitcoinlib
-            logger.info(f"Broadcasting payout {payout.id}: {payout.amount} sats to {payout.to_address}")
+            logger.info(f"Broadcasting payout {payout_dict['_id']}: {payout_dict['amount']} sats to {payout_dict['to_address']}")
             
-            # Call async function directly
             result = await self._send_bitcoin(
-                to_address=payout.to_address,
-                amount_satoshis=payout.amount,
+                to_address=payout_dict["to_address"],
+                amount_satoshis=payout_dict["amount"],
                 from_private_key=self.house_private_key
             )
             
             if result and result.get('tx', {}).get('hash'):
                 txid = result['tx']['hash']
-                payout.txid = txid
-                payout.status = 'broadcast'
-                payout.broadcast_at = datetime.utcnow()
+                
+                update_data = {
+                    "txid": txid,
+                    "status": "broadcast",
+                    "broadcast_at": datetime.utcnow()
+                }
                 
                 # Extract fee if available
                 if 'fees' in result['tx']:
-                    payout.network_fee = result['tx']['fees']
+                    update_data["network_fee"] = result['tx']['fees']
                 
-                self.db.commit()
+                await payouts_col.update_one(
+                    {"_id": payout_dict["_id"]},
+                    {"$set": update_data}
+                )
                 
-                logger.info(f"[OK] Payout {payout.id} broadcast successfully: {txid}")
+                logger.info(f"[OK] Payout {payout_dict['_id']} broadcast successfully: {txid}")
                 return True
             
             else:
                 error_msg = result.get('error', 'Unknown error') if result else 'No response'
-                payout.error_message = str(error_msg)
-                self.db.commit()
+                await payouts_col.update_one(
+                    {"_id": payout_dict["_id"]},
+                    {"$set": {"error_message": str(error_msg)}}
+                )
                 
-                logger.error(f"❌ Failed to broadcast payout {payout.id}: {error_msg}")
+                logger.error(f"❌ Failed to broadcast payout {payout_dict['_id']}: {error_msg}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Error broadcasting payout {payout.id}: {e}")
-            payout.error_message = str(e)
+            logger.error(f"Error broadcasting payout {payout_dict['_id']}: {e}")
             
-            if payout.retry_count >= payout.max_retries:
-                payout.status = 'failed'
+            payouts_col = get_payouts_collection()
+            update_data = {"error_message": str(e)}
             
-            self.db.commit()
+            if payout_dict.get("retry_count", 0) + 1 >= payout_dict.get("max_retries", 3):
+                update_data["status"] = "failed"
+            
+            await payouts_col.update_one(
+                {"_id": payout_dict["_id"]},
+                {"$set": update_data}
+            )
             return False
     
     async def _get_utxos(self, address: str) -> List[Dict[str, Any]]:
@@ -327,7 +363,6 @@ class PayoutEngine:
             logger.info(f"[PAYOUT] Creating transaction: {amount_satoshis} sats to {to_address[:10]}...")
             
             # Wait briefly for UTXO index to update (race condition fix)
-            # When a deposit just arrived, Mempool.space needs a few seconds to update its UTXO list
             import asyncio
             await asyncio.sleep(3)
             logger.info(f"[PAYOUT] Waited 3s for UTXO index to update")
@@ -339,7 +374,7 @@ class PayoutEngine:
                 logger.error(f"[PAYOUT] No UTXOs available for {self.house_address}")
                 return None
             
-            # Select UTXOs (use first UTXO that's large enough including fee buffer)
+            # Select UTXOs
             fee_buffer = config.FEE_BUFFER_SATOSHIS
             selected_utxo = None
             for utxo in utxos:
@@ -348,11 +383,11 @@ class PayoutEngine:
                     break
             
             if not selected_utxo:
-                # Try combining UTXOs if single one isn't enough
+                # Try combining UTXOs
                 total = sum(u['value'] for u in utxos)
                 if total >= amount_satoshis + fee_buffer:
                     logger.info(f"[PAYOUT] Using multiple UTXOs (total: {total} sats)")
-                    selected_utxo = utxos  # Use all
+                    selected_utxo = utxos
                 else:
                     logger.error(f"[PAYOUT] Insufficient funds: need {amount_satoshis + fee_buffer}, have {total}")
                     return None
@@ -365,7 +400,6 @@ class PayoutEngine:
             fee = config.DEFAULT_TX_FEE_SATOSHIS
             
             # Create transaction inputs (SegWit-aware)
-            # Detect if house address is SegWit (bc1) or Legacy (1)
             witness_type = 'segwit' if self.house_address.startswith('bc1') or self.house_address.startswith('tb1') else 'legacy'
             
             inputs = []
@@ -394,12 +428,12 @@ class PayoutEngine:
                 Output(amount_satoshis, address=to_address, network=network)
             ]
             
-            # Add change output if needed (above dust limit)
+            # Add change output if needed
             change = total_input - amount_satoshis - fee
             if change > config.DUST_LIMIT_SATOSHIS:
                 outputs.append(Output(change, address=self.house_address, network=network))
             
-            # Create and sign transaction (specify witness_type for SegWit)
+            # Create and sign transaction
             tx = BTCTransaction(inputs=inputs, outputs=outputs, network=network, witness_type=witness_type)
             tx.sign()
             
@@ -435,16 +469,19 @@ class PayoutEngine:
             Number of payouts retried
         """
         try:
+            payouts_col = get_payouts_collection()
+            bets_col = get_bets_collection()
+            
             # Get pending/failed payouts
-            failed_payouts = self.db.query(Payout).filter(
-                Payout.status.in_(['pending', 'failed']),
-                Payout.retry_count < Payout.max_retries
-            ).all()
+            failed_payouts = await payouts_col.find({
+                "status": {"$in": ["pending", "failed"]},
+                "$expr": {"$lt": ["$retry_count", "$max_retries"]}
+            }).to_list(length=100)
             
             retried = 0
             
             for payout in failed_payouts:
-                logger.info(f"Retrying payout {payout.id}")
+                logger.info(f"Retrying payout {payout['_id']}")
                 
                 success = await self._broadcast_payout(payout)
                 
@@ -452,13 +489,17 @@ class PayoutEngine:
                     retried += 1
                     
                     # Update bet status
-                    bet = self.db.query(Bet).filter(Bet.id == payout.bet_id).first()
-                    if bet:
-                        bet.status = 'paid'
-                        bet.paid_at = datetime.utcnow()
-                        bet.payout_txid = payout.txid
-            
-            self.db.commit()
+                    # Refresh payout to get latest txid
+                    payout_updated = await payouts_col.find_one({"_id": payout["_id"]})
+                    if payout_updated and payout_updated.get("txid"):
+                        await bets_col.update_one(
+                            {"_id": payout["bet_id"]},
+                            {"$set": {
+                                "status": "paid",
+                                "paid_at": datetime.utcnow(),
+                                "payout_txid": payout_updated["txid"]
+                            }}
+                        )
             
             if retried > 0:
                 logger.info(f"[OK] Retried {retried} payout(s)")
@@ -477,18 +518,20 @@ class PayoutEngine:
             Number of payouts confirmed
         """
         try:
+            payouts_col = get_payouts_collection()
+            
             # Get broadcast payouts
-            broadcast_payouts = self.db.query(Payout).filter(
-                Payout.status == 'broadcast',
-                Payout.txid.isnot(None)
-            ).all()
+            broadcast_payouts = await payouts_col.find({
+                "status": "broadcast",
+                "txid": {"$ne": None, "$exists": True}
+            }).to_list(length=100)
             
             confirmed = 0
             
             for payout in broadcast_payouts:
                 try:
                     # Check transaction status via Mempool.space
-                    url = f"{self.mempool_api}/tx/{payout.txid}"
+                    url = f"{self.mempool_api}/tx/{payout['txid']}"
                     
                     async with httpx.AsyncClient(timeout=float(config.API_REQUEST_TIMEOUT)) as client:
                         response = await client.get(url)
@@ -498,17 +541,19 @@ class PayoutEngine:
                             status = tx_data.get('status', {})
                             
                             if status.get('confirmed'):
-                                payout.status = 'confirmed'
-                                payout.confirmed_at = datetime.utcnow()
+                                await payouts_col.update_one(
+                                    {"_id": payout["_id"]},
+                                    {"$set": {
+                                        "status": "confirmed",
+                                        "confirmed_at": datetime.utcnow()
+                                    }}
+                                )
                                 confirmed += 1
                                 
-                                logger.info(f"[OK] Payout {payout.id} confirmed: {payout.txid}")
+                                logger.info(f"[OK] Payout {payout['_id']} confirmed: {payout['txid']}")
                 
                 except Exception as e:
-                    logger.error(f"Error checking payout {payout.id}: {e}")
-            
-            if confirmed > 0:
-                self.db.commit()
+                    logger.error(f"Error checking payout {payout['_id']}: {e}")
             
             return confirmed
             
@@ -525,224 +570,276 @@ class PayoutEngine:
 class BetProcessor:
     """Process bets through the complete lifecycle"""
     
-    def __init__(self, db: Session):
-        self.db = db
-        self.payout_engine = PayoutEngine(db)
+    def __init__(self):
+        self.payout_engine = PayoutEngine()
     
-    def process_detected_transaction(self, transaction: Transaction) -> Optional[Bet]:
+    async def process_detected_transaction(self, transaction_dict: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
         Process a detected transaction into a bet
         
         Args:
-            transaction: Detected transaction
+            transaction_dict: Detected transaction dictionary
             
         Returns:
-            Bet object or None
+            Bet dictionary or None
         """
         try:
-            # Check if bet already exists (must check this first!)
-            existing_bet = self.db.query(Bet).filter(
-                Bet.deposit_txid == transaction.txid
-            ).first()
+            bets_col = get_bets_collection()
+            txs_col = get_transactions_collection()
+            users_col = get_users_collection()
+            deposit_addrs_col = get_deposit_addresses_collection()
+            seeds_col = get_seeds_collection()
+            
+            # Check if bet already exists
+            existing_bet = await bets_col.find_one({"deposit_txid": transaction_dict["txid"]})
             
             if existing_bet:
-                logger.info(f"Bet already exists for transaction {transaction.txid}")
+                logger.info(f"Bet already exists for transaction {transaction_dict['txid']}")
                 # Mark transaction as processed if not already
-                if not transaction.is_processed:
-                    transaction.is_processed = True
-                    transaction.processed_at = datetime.utcnow()
-                    self.db.commit()
+                if not transaction_dict.get("is_processed"):
+                    await txs_col.update_one(
+                        {"_id": transaction_dict["_id"]},
+                        {"$set": {
+                            "is_processed": True,
+                            "processed_at": datetime.utcnow()
+                        }}
+                    )
                 return existing_bet
             
-            # Check if already processed but no bet found (shouldn't happen, but handle it)
-            if transaction.is_processed:
-                logger.warning(f"Transaction {transaction.txid} marked as processed but no bet found")
+            # Check if already processed
+            if transaction_dict.get("is_processed"):
+                logger.warning(f"Transaction {transaction_dict['txid']} marked as processed but no bet found")
                 return None
             
             # Get or create user
-            from .database import User, DepositAddress, Seed
-            
-            user = self.db.query(User).filter(
-                User.address == transaction.from_address
-            ).first()
+            user = await users_col.find_one({"address": transaction_dict["from_address"]})
             
             if not user:
-                user = User(
-                    address=transaction.from_address,
-                    total_bets=0,
-                    total_wagered=0,
-                    total_won=0,
-                    total_lost=0
-                )
-                self.db.add(user)
-                self.db.commit()
-                self.db.refresh(user)
+                user_doc = {
+                    "address": transaction_dict["from_address"],
+                    "created_at": datetime.utcnow(),
+                    "last_seen": datetime.utcnow(),
+                    "total_bets": 0,
+                    "total_wagered": 0,
+                    "total_won": 0,
+                    "total_lost": 0
+                }
+                result = await users_col.insert_one(user_doc)
+                user_doc["_id"] = result.inserted_id
+                user = user_doc
             
             # Get deposit address info for bet parameters
-            deposit_addr = self.db.query(DepositAddress).filter(
-                DepositAddress.address == transaction.to_address
-            ).first()
+            deposit_addr = await deposit_addrs_col.find_one({"address": transaction_dict["to_address"]})
             
-            # Determine multiplier (default or from deposit address)
-            multiplier = deposit_addr.expected_multiplier if deposit_addr and deposit_addr.expected_multiplier else 2.0
+            # Determine multiplier
+            multiplier = deposit_addr.get("expected_multiplier", 2.0) if deposit_addr else 2.0
             
             # Get or create active seed for user
-            seed = self.db.query(Seed).filter(
-                Seed.user_id == user.id,
-                Seed.is_active == True
-            ).first()
+            seed = await seeds_col.find_one({"user_id": user["_id"], "is_active": True})
             
             if not seed:
                 from .provably_fair import generate_new_seed_pair
                 
-                server_seed, server_seed_hash, client_seed = generate_new_seed_pair(user.address)
+                server_seed, server_seed_hash, client_seed = generate_new_seed_pair(user["address"])
                 
-                seed = Seed(
-                    user_id=user.id,
-                    server_seed=server_seed,
-                    server_seed_hash=server_seed_hash,
-                    client_seed=client_seed,
-                    nonce=0,
-                    is_active=True
-                )
-                self.db.add(seed)
-                self.db.commit()
-                self.db.refresh(seed)
+                seed_doc = {
+                    "user_id": user["_id"],
+                    "server_seed": server_seed,
+                    "server_seed_hash": server_seed_hash,
+                    "client_seed": client_seed,
+                    "nonce": 0,
+                    "is_active": True,
+                    "revealed_at": None,
+                    "created_at": datetime.utcnow()
+                }
+                result = await seeds_col.insert_one(seed_doc)
+                seed_doc["_id"] = result.inserted_id
+                seed = seed_doc
             
             # Validate bet parameters
-            is_valid, error = ProvablyFair.validate_bet_params(transaction.amount, multiplier)
+            is_valid, error = ProvablyFair.validate_bet_params(transaction_dict["amount"], multiplier)
             
             if not is_valid:
                 logger.error(f"Invalid bet parameters: {error}")
-                transaction.is_processed = True
-                transaction.processed_at = datetime.utcnow()
-                self.db.commit()
+                await txs_col.update_one(
+                    {"_id": transaction_dict["_id"]},
+                    {"$set": {
+                        "is_processed": True,
+                        "processed_at": datetime.utcnow()
+                    }}
+                )
                 return None
             
             # Calculate win chance
             win_chance = ProvablyFair.calculate_win_chance(multiplier)
             
             # Create bet
-            bet = Bet(
-                user_id=user.id,
-                seed_id=seed.id,
-                bet_amount=transaction.amount,
-                target_multiplier=multiplier,
-                win_chance=win_chance,
-                nonce=seed.nonce,
-                deposit_txid=transaction.txid,
-                deposit_address=transaction.to_address,
-                status='pending'
-            )
+            bet_doc = {
+                "user_id": user["_id"],
+                "seed_id": seed["_id"],
+                "bet_amount": transaction_dict["amount"],
+                "target_multiplier": multiplier,
+                "win_chance": win_chance,
+                "nonce": seed["nonce"],
+                "roll_result": None,
+                "is_win": None,
+                "payout_amount": None,
+                "profit": None,
+                "deposit_txid": transaction_dict["txid"],
+                "deposit_address": transaction_dict["to_address"],
+                "payout_txid": None,
+                "status": "pending",
+                "created_at": datetime.utcnow(),
+                "confirmed_at": None,
+                "rolled_at": None,
+                "paid_at": None
+            }
             
-            self.db.add(bet)
+            result = await bets_col.insert_one(bet_doc)
+            bet_doc["_id"] = result.inserted_id
             
             # Link transaction to bet
-            transaction.bet_id = bet.id
-            transaction.is_processed = True
-            transaction.processed_at = datetime.utcnow()
+            await txs_col.update_one(
+                {"_id": transaction_dict["_id"]},
+                {"$set": {
+                    "bet_id": bet_doc["_id"],
+                    "is_processed": True,
+                    "processed_at": datetime.utcnow()
+                }}
+            )
             
             # Mark deposit address as used
             if deposit_addr:
-                deposit_addr.is_used = True
-                deposit_addr.used_at = datetime.utcnow()
+                await deposit_addrs_col.update_one(
+                    {"_id": deposit_addr["_id"]},
+                    {"$set": {
+                        "is_used": True,
+                        "used_at": datetime.utcnow()
+                    }}
+                )
             
-            self.db.commit()
-            self.db.refresh(bet)
+            logger.info(f"[OK] Created bet {bet_doc['_id']} from transaction {transaction_dict['txid']}")
             
-            logger.info(f"[OK] Created bet {bet.id} from transaction {transaction.txid}")
+            # Check if should roll immediately
+            if transaction_dict.get("confirmations", 0) >= config.MIN_CONFIRMATIONS_PAYOUT:
+                await self.roll_and_payout_bet(bet_doc)
             
-            # Check if should roll immediately (for 0-conf bets)
-            if transaction.confirmations >= config.MIN_CONFIRMATIONS_PAYOUT:
-                self.roll_and_payout_bet(bet)
-            
-            return bet
+            return bet_doc
             
         except Exception as e:
-            logger.error(f"Error processing transaction {transaction.txid}: {e}")
-            self.db.rollback()
+            logger.error(f"Error processing transaction {transaction_dict['txid']}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return None
     
-    def roll_and_payout_bet(self, bet: Bet) -> bool:
+    async def roll_and_payout_bet(self, bet_dict: Dict[str, Any]) -> bool:
         """
         Roll dice and process payout for a bet
         
         Args:
-            bet: Bet object
+            bet_dict: Bet dictionary
             
         Returns:
             True if successful
         """
         try:
+            bets_col = get_bets_collection()
+            seeds_col = get_seeds_collection()
+            users_col = get_users_collection()
+            
             # Check if already rolled
-            if bet.roll_result is not None:
-                logger.info(f"Bet {bet.id} already rolled")
+            if bet_dict.get("roll_result") is not None:
+                logger.info(f"Bet {bet_dict['_id']} already rolled")
                 return True
             
             # Get seed
-            from .database import Seed
-            seed = self.db.query(Seed).filter(Seed.id == bet.seed_id).first()
+            seed = await seeds_col.find_one({"_id": bet_dict["seed_id"]})
             
             if not seed:
-                logger.error(f"Seed not found for bet {bet.id}")
+                logger.error(f"Seed not found for bet {bet_dict['_id']}")
                 return False
             
             # Roll the dice
-            from .provably_fair import ProvablyFair
-            
             result = ProvablyFair.create_bet_result(
-                server_seed=seed.server_seed,
-                client_seed=seed.client_seed,
-                nonce=bet.nonce,
-                bet_amount=bet.bet_amount,
-                multiplier=bet.target_multiplier
+                server_seed=seed["server_seed"],
+                client_seed=seed["client_seed"],
+                nonce=bet_dict["nonce"],
+                bet_amount=bet_dict["bet_amount"],
+                multiplier=bet_dict["target_multiplier"]
             )
             
             # Update bet with result
-            bet.roll_result = result['roll']
-            bet.is_win = result['is_win']
-            bet.payout_amount = result['payout']
-            bet.profit = result['profit']
-            bet.rolled_at = datetime.utcnow()
-            bet.status = 'rolled'
+            await bets_col.update_one(
+                {"_id": bet_dict["_id"]},
+                {"$set": {
+                    "roll_result": result["roll"],
+                    "is_win": result["is_win"],
+                    "payout_amount": result["payout"],
+                    "profit": result["profit"],
+                    "rolled_at": datetime.utcnow(),
+                    "status": "rolled"
+                }}
+            )
             
             # Increment seed nonce
-            seed.nonce += 1
+            await seeds_col.update_one(
+                {"_id": seed["_id"]},
+                {"$inc": {"nonce": 1}}
+            )
             
             # Update user statistics
-            bet.user.total_bets += 1
-            bet.user.total_wagered += bet.bet_amount
+            update_stats = {
+                "total_bets": 1,
+                "total_wagered": bet_dict["bet_amount"]
+            }
             
-            if bet.is_win:
-                bet.user.total_won += bet.profit
+            if result["is_win"]:
+                update_stats["total_won"] = result["profit"]
             else:
-                bet.user.total_lost += abs(bet.profit)
+                update_stats["total_lost"] = abs(result["profit"])
             
-            self.db.commit()
+            await users_col.update_one(
+                {"_id": bet_dict["user_id"]},
+                {"$inc": update_stats}
+            )
             
-            logger.info(f"[DICE] Bet {bet.id} rolled: {result['roll']} ({'WIN' if result['is_win'] else 'LOSE'}) profit={result['profit']}")
+            logger.info(f"[DICE] Bet {bet_dict['_id']} rolled: {result['roll']} ({'WIN' if result['is_win'] else 'LOSE'}) profit={result['profit']}")
+            
+            # Update bet_dict for payout
+            bet_dict["roll_result"] = result["roll"]
+            bet_dict["is_win"] = result["is_win"]
+            bet_dict["payout_amount"] = result["payout"]
+            bet_dict["profit"] = result["profit"]
+            bet_dict["status"] = "rolled"
             
             # Process payout if winner
-            if bet.is_win and bet.payout_amount > 0:
-                payout = self.payout_engine.process_winning_bet(bet)
+            if result["is_win"] and result["payout"] > 0:
+                payout = await self.payout_engine.process_winning_bet(bet_dict)
                 
-                if payout:
-                    bet.payout_txid = payout.txid
-                    self.db.commit()
+                if payout and payout.get("txid"):
+                    await bets_col.update_one(
+                        {"_id": bet_dict["_id"]},
+                        {"$set": {"payout_txid": payout["txid"]}}
+                    )
             else:
                 # Mark as paid (house keeps it)
-                bet.status = 'paid'
-                bet.paid_at = datetime.utcnow()
-                self.db.commit()
+                await bets_col.update_one(
+                    {"_id": bet_dict["_id"]},
+                    {"$set": {
+                        "status": "paid",
+                        "paid_at": datetime.utcnow()
+                    }}
+                )
             
             return True
             
         except Exception as e:
-            logger.error(f"Error rolling bet {bet.id}: {e}")
-            self.db.rollback()
+            logger.error(f"Error rolling bet {bet_dict['_id']}: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return False
     
-    def process_pending_bets(self) -> int:
+    async def process_pending_bets(self) -> int:
         """
         Process all pending bets that have sufficient confirmations
         
@@ -750,26 +847,32 @@ class BetProcessor:
             Number of bets processed
         """
         try:
-            from .database import Bet
+            bets_col = get_bets_collection()
+            txs_col = get_transactions_collection()
             
             # Get pending/confirmed bets
-            pending_bets = self.db.query(Bet).filter(
-                Bet.status.in_(['pending', 'confirmed']),
-                Bet.roll_result.is_(None)
-            ).all()
+            pending_bets = await bets_col.find({
+                "status": {"$in": ["pending", "confirmed"]},
+                "roll_result": None
+            }).to_list(length=100)
             
             processed = 0
             
             for bet in pending_bets:
                 # Check confirmations
-                if bet.transaction:
-                    if bet.transaction.confirmations >= config.MIN_CONFIRMATIONS_PAYOUT:
-                        bet.status = 'confirmed'
-                        bet.confirmed_at = datetime.utcnow()
-                        self.db.commit()
+                if bet.get("deposit_txid"):
+                    tx = await txs_col.find_one({"txid": bet["deposit_txid"]})
+                    if tx and tx.get("confirmations", 0) >= config.MIN_CONFIRMATIONS_PAYOUT:
+                        await bets_col.update_one(
+                            {"_id": bet["_id"]},
+                            {"$set": {
+                                "status": "confirmed",
+                                "confirmed_at": datetime.utcnow()
+                            }}
+                        )
                         
                         # Roll and payout
-                        if self.roll_and_payout_bet(bet):
+                        if await self.roll_and_payout_bet(bet):
                             processed += 1
             
             if processed > 0:

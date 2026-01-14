@@ -1,6 +1,6 @@
 """
 Transaction Detection System using Mempool.space API
-Real-time monitoring via WebSocket and REST API
+Real-time monitoring via WebSocket and REST API - MongoDB Version
 """
 import asyncio
 import json
@@ -8,11 +8,16 @@ from typing import Optional, Dict, Any, List, Set
 from datetime import datetime, timedelta
 import httpx
 import websockets
-from sqlalchemy.orm import Session
 from loguru import logger
+from bson import ObjectId
 
 from .config import config
-from .database import Transaction, DepositAddress
+from .database import (
+    get_transactions_collection,
+    get_deposit_addresses_collection,
+    TransactionModel,
+    DepositAddressModel
+)
 
 
 class TransactionDetector:
@@ -22,8 +27,7 @@ class TransactionDetector:
     Uses Mempool.space REST API for transaction detection and verification
     """
     
-    def __init__(self, db: Session):
-        self.db = db
+    def __init__(self):
         self.network = config.NETWORK
     
     async def check_mempool_space_api(self, address: str) -> List[Dict[str, Any]]:
@@ -57,10 +61,10 @@ class TransactionDetector:
         Get transaction details from Mempool.space
         
         Args:
-            txid: Transaction hash
+            txid: Transaction ID
             
         Returns:
-            Transaction data or None
+            Transaction details dictionary or None
         """
         try:
             url = f"{config.MEMPOOL_SPACE_API}/tx/{txid}"
@@ -71,50 +75,56 @@ class TransactionDetector:
                 if response.status_code == 200:
                     return response.json()
                 else:
-                    logger.warning(f"Mempool.space API returned {response.status_code} for tx {txid}")
+                    logger.warning(f"Transaction {txid} not found in Mempool.space")
                     return None
                     
         except Exception as e:
-            logger.error(f"Error fetching transaction {txid}: {e}")
+            logger.error(f"Error getting transaction details: {e}")
             return None
     
-    async def verify_user_submitted_tx(self, txid: str, expected_address: str, expected_amount: Optional[int] = None) -> Optional[Transaction]:
+    async def verify_user_submitted_tx(
+        self,
+        txid: str,
+        expected_address: str,
+        expected_amount: Optional[int] = None
+    ) -> Optional[Dict[str, Any]]:
         """
-        Verify and process a user-submitted transaction ID
+        Verify a user-submitted transaction
         
         Args:
-            txid: Transaction hash provided by user
-            expected_address: Address that should receive the payment
+            txid: Transaction ID
+            expected_address: Expected destination address
             expected_amount: Expected amount (optional)
             
         Returns:
-            Transaction object if valid, None otherwise
+            Transaction document or None
         """
         try:
+            tx_col = get_transactions_collection()
+            
             # Check if already exists
-            existing = self.db.query(Transaction).filter(
-                Transaction.txid == txid
-            ).first()
+            existing = await tx_col.find_one({"txid": txid})
             
             if existing:
-                logger.info(f"Transaction {txid} already exists")
+                logger.info(f"[TX] Transaction {txid[:16]}... already in database")
                 return existing
             
             # Get transaction details from Mempool.space
             tx_data = await self.get_transaction_details(txid)
             
             if not tx_data:
-                logger.error(f"Could not fetch transaction {txid}")
+                logger.warning(f"[TX] Transaction {txid} not found")
                 return None
             
-            # Process and store
-            return self._process_mempool_tx(tx_data, expected_address, 'user_submit')
-                    
+            # Process and store the transaction
+            tx_obj = await self._process_mempool_tx(tx_data, expected_address, 'user_submitted')
+            return tx_obj
+            
         except Exception as e:
             logger.error(f"Error verifying user-submitted tx: {e}")
             return None
     
-    async def check_address_transactions(self, address: str) -> List[Transaction]:
+    async def check_address_transactions(self, address: str) -> List[Dict[str, Any]]:
         """
         Check Mempool.space API for new transactions to an address
         
@@ -122,11 +132,13 @@ class TransactionDetector:
             address: Bitcoin address to check
             
         Returns:
-            List of new transactions
+            List of new transaction documents
         """
         new_transactions = []
         
         try:
+            tx_col = get_transactions_collection()
+            
             # Get transactions from Mempool.space
             mempool_txs = await self.check_mempool_space_api(address)
             
@@ -137,15 +149,13 @@ class TransactionDetector:
                     continue
                 
                 # Check if already exists
-                existing = self.db.query(Transaction).filter(
-                    Transaction.txid == tx_hash
-                ).first()
+                existing = await tx_col.find_one({"txid": tx_hash})
                 
                 if existing:
                     continue
                 
                 # Convert to our format and store
-                tx_obj = self._process_mempool_tx(tx_data, address, 'mempool_space')
+                tx_obj = await self._process_mempool_tx(tx_data, address, 'mempool_space')
                 if tx_obj:
                     new_transactions.append(tx_obj)
             
@@ -158,283 +168,238 @@ class TransactionDetector:
             logger.error(f"Error checking address transactions: {e}")
             return []
     
-    def _process_mempool_tx(self, tx_data: Dict[str, Any], address: str, source: str) -> Optional[Transaction]:
+    async def _process_mempool_tx(
+        self,
+        tx_data: Dict[str, Any],
+        address: str,
+        source: str
+    ) -> Optional[Dict[str, Any]]:
         """
-        Process transaction data from Mempool.space API
+        Process a transaction from Mempool.space into our database format
         
         Args:
             tx_data: Transaction data from Mempool.space
-            address: Our address that received payment
-            source: Source (mempool_space, user_submit, etc.)
+            address: Target address
+            source: Detection source
             
         Returns:
-            Transaction object or None
+            Transaction document or None
         """
         try:
-            tx_hash = tx_data.get('txid')
+            tx_col = get_transactions_collection()
             
-            # Check for duplicate
-            existing = self.db.query(Transaction).filter(
-                Transaction.txid == tx_hash
-            ).first()
+            txid = tx_data.get('txid')
             
-            if existing:
-                existing.detection_count += 1
-                self.db.commit()
-                return existing
-            
-            # Extract data
-            status = tx_data.get('status', {})
-            confirmations = 0
-            block_height = None
-            
-            if status.get('confirmed'):
-                confirmations = 1  # Simplified - would need current block height for accurate count
-                block_height = status.get('block_height')
-            
-            # Find output to our address
-            vout = tx_data.get('vout', [])
+            # Extract amount sent to target address
             amount = 0
-            from_address = None
-            found_address = False
+            vout = tx_data.get('vout', [])
             
             for output in vout:
                 if output.get('scriptpubkey_address') == address:
-                    amount = output.get('value', 0)
-                    found_address = True
-                    break
+                    amount += output.get('value', 0)
             
-            # Verify transaction pays to expected address
-            if not found_address:
-                logger.warning(f"TX {tx_hash} does not pay to {address}")
-                return None
-            
-            # Verify amount is not zero
             if amount == 0:
-                logger.warning(f"TX {tx_hash} has zero amount to {address}")
+                logger.warning(f"[TX] No output to {address} in tx {txid}")
                 return None
             
-            # Get sender (from first input)
+            # Extract input addresses (from)
+            from_address = None
             vin = tx_data.get('vin', [])
-            if vin:
+            if vin and len(vin) > 0:
                 from_address = vin[0].get('prevout', {}).get('scriptpubkey_address')
             
-            # Calculate fee
-            fee = tx_data.get('fee', 0)
+            # Block info
+            status = tx_data.get('status', {})
+            confirmations = status.get('confirmed', False)
+            block_height = status.get('block_height')
+            block_hash = status.get('block_hash')
             
-            # Create transaction record
-            transaction = Transaction(
-                txid=tx_hash,
-                from_address=from_address,
-                to_address=address,
-                amount=amount,
-                fee=fee if fee > 0 else None,
-                detected_by=source,
-                detection_count=1,
-                confirmations=confirmations,
-                block_height=block_height,
-                is_processed=False,
-                detected_at=datetime.utcnow(),
-                raw_data=json.dumps(tx_data, default=str)
-            )
+            # Create transaction document
+            tx_doc = {
+                "txid": txid,
+                "from_address": from_address,
+                "to_address": address,
+                "amount": amount,
+                "fee": tx_data.get('fee', 0),
+                "detected_by": source,
+                "detection_count": 1,
+                "confirmations": 1 if confirmations else 0,
+                "block_height": block_height,
+                "block_hash": block_hash,
+                "is_processed": False,
+                "is_duplicate": False,
+                "detected_at": datetime.utcnow(),
+                "confirmed_at": datetime.utcnow() if confirmations else None,
+                "raw_data": json.dumps(tx_data)
+            }
             
-            self.db.add(transaction)
-            self.db.commit()
-            self.db.refresh(transaction)
+            # Insert into database
+            result = await tx_col.insert_one(tx_doc)
+            tx_doc["_id"] = result.inserted_id
             
-            logger.info(f"[OK] Transaction detected: {tx_hash[:16]}... amount={amount} conf={confirmations}")
+            amount_btc = amount / 100000000
+            logger.info(f"✅ [TX] Saved {txid[:16]}... ({amount_btc:.8f} BTC to {address[:10]}...)")
             
-            return transaction
+            return tx_doc
             
         except Exception as e:
-            logger.error(f"Error processing Mempool.space transaction: {e}")
-            self.db.rollback()
+            logger.error(f"Error processing Mempool tx: {e}")
             return None
 
 
 # Mempool.space WebSocket client
 class MempoolWebSocket:
     """
-    WebSocket client for real-time transaction monitoring via Mempool.space
+    WebSocket client for Mempool.space real-time transaction monitoring
+    MongoDB version
     """
     
-    def __init__(self, db_session_factory):
-        self.db_session_factory = db_session_factory
-        self.network = config.NETWORK
+    def __init__(self):
         self.websocket = None
         self.running = False
         self.subscribed_addresses: Set[str] = set()
         self.reconnect_delay = config.WS_RECONNECT_DELAY
         self.max_reconnect_delay = config.WS_MAX_RECONNECT_DELAY
-        
-        # WebSocket URL from config
-        self.ws_url = config.MEMPOOL_WEBSOCKET_URL
     
-    async def connect(self):
-        """Establish WebSocket connection"""
+    async def connect(self) -> bool:
+        """Connect to Mempool.space WebSocket"""
         try:
-            logger.info(f"[WEBSOCKET] Connecting to {self.ws_url}")
+            logger.info(f"[WEBSOCKET] Connecting to {config.MEMPOOL_WEBSOCKET_URL}...")
+            
             self.websocket = await websockets.connect(
-                self.ws_url,
+                config.MEMPOOL_WEBSOCKET_URL,
                 ping_interval=config.WS_PING_INTERVAL,
-                ping_timeout=config.WS_PING_TIMEOUT,
-                close_timeout=10
+                ping_timeout=config.WS_PING_TIMEOUT
             )
-            logger.info("[WEBSOCKET] Connected successfully to Mempool.space")
-            self.reconnect_delay = 5  # Reset delay on successful connection
+            
+            # Reset reconnect delay on successful connection
+            self.reconnect_delay = config.WS_RECONNECT_DELAY
+            
+            logger.info("[WEBSOCKET] ✅ Connected successfully")
             return True
+            
         except Exception as e:
             logger.error(f"[WEBSOCKET] Connection failed: {e}")
             return False
     
-    async def subscribe_to_mempool(self):
-        """Subscribe to mempool data"""
+    async def subscribe_address(self, address: str):
+        """
+        Subscribe to a specific Bitcoin address for transaction updates
+        
+        Args:
+            address: Bitcoin address to track
+        """
         if not self.websocket:
-            logger.warning(f"[WEBSOCKET] Not connected, cannot subscribe to mempool")
-            return False
+            logger.warning("[WEBSOCKET] Not connected, cannot subscribe")
+            return
         
         try:
-            # Subscribe to mempool blocks and stats
-            subscribe_msg = {
-                "action": "want",
-                "data": ["blocks", "mempool-blocks", "live-2h-chart", "stats"]
-            }
+            # Send track-address message
+            track_msg = {"track-address": address}
+            await self.websocket.send(json.dumps(track_msg))
             
-            await self.websocket.send(json.dumps(subscribe_msg))
-            logger.info(f"[WEBSOCKET] Subscribed to mempool data")
-            return True
+            # Add to subscribed set
+            self.subscribed_addresses.add(address)
+            
+            logger.info(f"[WEBSOCKET] 📍 Tracking address: {address[:20]}...")
+            
+        except Exception as e:
+            logger.error(f"[WEBSOCKET] Failed to subscribe to {address}: {e}")
+    
+    async def subscribe_to_mempool(self):
+        """Subscribe to mempool live updates"""
+        if not self.websocket:
+            logger.warning("[WEBSOCKET] Not connected, cannot subscribe to mempool")
+            return
+        
+        try:
+            init_msg = {"action": "want", "data": ["blocks", "mempool-blocks"]}
+            await self.websocket.send(json.dumps(init_msg))
+            logger.info("[WEBSOCKET] 📊 Subscribed to mempool updates")
+            
         except Exception as e:
             logger.error(f"[WEBSOCKET] Failed to subscribe to mempool: {e}")
-            return False
-    
-    async def subscribe_address(self, address: str):
-        """Track a specific address for transaction notifications"""
-        if not self.websocket:
-            logger.warning(f"[WEBSOCKET] Not connected, cannot track address")
-            return False
-        
-        try:
-            # Track specific address - this is the key!
-            track_msg = {
-                "track-address": address
-            }
-            
-            await self.websocket.send(json.dumps(track_msg))
-            self.subscribed_addresses.add(address)
-            logger.info(f"[WEBSOCKET] Tracking address: {address}")
-            return True
-        except Exception as e:
-            logger.error(f"[WEBSOCKET] Failed to track address {address}: {e}")
-            return False
     
     async def handle_message(self, message: str):
-        """Process incoming WebSocket message"""
+        """Handle incoming WebSocket message"""
         try:
             data = json.loads(message)
             
-            # Log the message type (only important messages to reduce spam)
-            if isinstance(data, dict):
-                message_keys = list(data.keys())
+            # Handle address-transactions messages (our target)
+            if "address-transactions" in data:
+                address_txs = data["address-transactions"]
                 
-                # ADDRESS-SPECIFIC TRANSACTION - This is what we want!
-                if 'address-transactions' in data:
-                    logger.info(f"🎯 [WEBSOCKET] Received address-specific transaction!")
-                    
-                    # address-transactions can be a list or a single transaction
-                    address_txs = data.get('address-transactions')
-                    
-                    # If it's a dict, convert to list
-                    if isinstance(address_txs, dict):
-                        address_txs = [address_txs]
-                    
-                    # Process each transaction
-                    if isinstance(address_txs, list):
-                        for tx_item in address_txs:
-                            # tx_item might be just a txid string or a dict
-                            if isinstance(tx_item, str):
-                                txid = tx_item
-                            elif isinstance(tx_item, dict):
-                                txid = tx_item.get('txid')
-                            else:
-                                continue
-                            
+                # Handle both list and dict formats
+                if isinstance(address_txs, list):
+                    for tx in address_txs:
+                        if isinstance(tx, dict):
+                            txid = tx.get('txid')
                             if txid:
-                                logger.info(f"[WEBSOCKET] Processing transaction: {txid[:16]}...")
-                                await self._check_and_process_tx(txid)
-                
-                # Single transaction with txid
-                elif 'txid' in data and 'vout' in data:
-                    # This is a full transaction object
-                    logger.info(f"[WEBSOCKET] Received full transaction")
-                    txid = data.get('txid')
-                    
+                                await self._process_transaction(txid)
+                        elif isinstance(tx, str):
+                            await self._process_transaction(tx)
+                elif isinstance(address_txs, dict):
+                    txid = address_txs.get('txid')
                     if txid:
-                        # Check if this transaction involves any of our addresses
-                        await self._check_and_process_tx_from_data(txid, data)
-                
-                # Mempool blocks update
-                elif 'mempool-blocks' in data:
-                    # Just log, don't process - we'll get address-transactions instead
-                    logger.debug(f"[WEBSOCKET] Mempool blocks update")
-                
-                # Other message types (stats, conversions, blocks, etc.)
-                else:
-                    # Only log if it's not a known non-transaction message
-                    if not any(k in message_keys for k in ['conversions', 'stats', 'live-2h-chart', 'blocks', 'block', 'mempool-blocks']):
-                        logger.debug(f"[WEBSOCKET] Other message: {message_keys}")
+                        await self._process_transaction(txid)
+                elif isinstance(address_txs, str):
+                    await self._process_transaction(address_txs)
+            
+            # Log other message types for debugging
+            elif "mempool-blocks" in data or "blocks" in data:
+                pass  # Ignore mempool/block updates
+            else:
+                logger.debug(f"[WEBSOCKET] Other message type: {list(data.keys())}")
                 
         except json.JSONDecodeError:
-            logger.warning(f"[WEBSOCKET] Failed to decode message: {message[:100]}")
+            logger.warning(f"[WEBSOCKET] Failed to parse message as JSON")
         except Exception as e:
             logger.error(f"[WEBSOCKET] Error handling message: {e}")
     
-    async def _check_and_process_tx(self, txid: str):
-        """Fetch and process transaction by txid"""
+    async def _process_transaction(self, txid: str):
+        """Process a transaction detected via WebSocket"""
         try:
-            logger.info(f"[WEBSOCKET] Processing transaction: {txid[:16]}...")
+            logger.info(f"[WEBSOCKET] 🔔 New transaction detected: {txid[:16]}...")
             
-            # Get database session
-            from .database import get_db
-            db = next(get_db())
+            # Fetch full transaction details from Mempool.space
+            detector = TransactionDetector()
+            tx_details = await detector.get_transaction_details(txid)
             
-            try:
-                # Fetch full transaction details from Mempool.space
-                detector = TransactionDetector(db)
-                tx_details = await detector.get_transaction_details(txid)
-                
-                if not tx_details:
-                    logger.warning(f"[WEBSOCKET] Could not fetch details for {txid[:16]}...")
-                    return
-                
-                # Process using the transaction data
-                await self._check_and_process_tx_from_data(txid, tx_details)
-                
-            finally:
-                db.close()
+            if not tx_details:
+                logger.warning(f"[WEBSOCKET] Could not fetch details for {txid[:16]}...")
+                return
+            
+            # Process using the transaction data
+            await self._check_and_process_tx_from_data(txid, tx_details)
                 
         except Exception as e:
             logger.error(f"[WEBSOCKET] Error processing tx {txid[:16] if txid else 'unknown'}: {e}")
     
-    async def _broadcast_bet_result(self, bet):
+    async def _broadcast_bet_result(self, bet: Dict[str, Any]):
         """Broadcast bet result to frontend WebSocket clients"""
         try:
             # Import manager from main to avoid circular imports
             from .main import manager
+            from .database import get_users_collection
+            
+            # Get user address
+            users_col = get_users_collection()
+            user = await users_col.find_one({"_id": ObjectId(bet["user_id"])})
             
             # Create bet response data
             bet_data = {
-                "id": bet.id,
-                "user_address": bet.user.address if bet.user else None,
-                "bet_amount": bet.bet_amount,
-                "target_multiplier": bet.target_multiplier,
-                "win_chance": bet.win_chance,
-                "roll_result": bet.roll_result,
-                "is_win": bet.is_win,
-                "payout_amount": bet.payout_amount,
-                "profit": bet.profit,
-                "status": bet.status,
-                "created_at": bet.created_at.isoformat() if bet.created_at else None,
-                "rolled_at": bet.rolled_at.isoformat() if bet.rolled_at else None
+                "id": str(bet["_id"]),
+                "user_address": user["address"] if user else None,
+                "bet_amount": bet["bet_amount"],
+                "target_multiplier": bet["target_multiplier"],
+                "win_chance": bet["win_chance"],
+                "roll_result": bet.get("roll_result"),
+                "is_win": bet.get("is_win"),
+                "payout_amount": bet.get("payout_amount"),
+                "profit": bet.get("profit"),
+                "status": bet["status"],
+                "created_at": bet["created_at"].isoformat() if bet.get("created_at") else None,
+                "rolled_at": bet.get("rolled_at").isoformat() if bet.get("rolled_at") else None
             }
             
             # Broadcast to all connected clients
@@ -443,7 +408,7 @@ class MempoolWebSocket:
                 "bet": bet_data
             })
             
-            logger.info(f"📡 [WEBSOCKET] Broadcast bet {bet.id} result to frontend clients")
+            logger.info(f"📡 [WEBSOCKET] Broadcast bet {bet['_id']} result to frontend clients")
             
         except Exception as e:
             logger.error(f"Error broadcasting bet result: {e}")
@@ -451,49 +416,42 @@ class MempoolWebSocket:
     async def _check_and_process_tx_from_data(self, txid: str, tx_data: dict):
         """Check if transaction involves our addresses and process it"""
         try:
-            # Get database session
-            from .database import get_db
-            db = next(get_db())
+            # Check if transaction pays to any of our addresses
+            vout = tx_data.get('vout', [])
             
-            try:
-                # Check if transaction pays to any of our addresses
-                vout = tx_data.get('vout', [])
-                
-                for addr in list(self.subscribed_addresses):
-                    for output in vout:
-                        if output.get('scriptpubkey_address') == addr:
-                            # Calculate amount
-                            amount_sats = output.get('value', 0)
-                            amount_btc = amount_sats / 100000000
+            for addr in list(self.subscribed_addresses):
+                for output in vout:
+                    if output.get('scriptpubkey_address') == addr:
+                        # Calculate amount
+                        amount_sats = output.get('value', 0)
+                        amount_btc = amount_sats / 100000000
+                        
+                        logger.info(f"🎯 [WEBSOCKET] Transaction {txid[:16]}... pays {amount_btc:.8f} BTC to {addr[:10]}...")
+                        
+                        # Process using manual method
+                        detector = TransactionDetector()
+                        tx = await detector.verify_user_submitted_tx(txid, addr)
+                        
+                        if tx:
+                            logger.info(f"✅ [WEBSOCKET] Transaction saved to database")
                             
-                            logger.info(f"🎯 [WEBSOCKET] Transaction {txid[:16]}... pays {amount_btc:.8f} BTC to {addr[:10]}...")
+                            # Import BetProcessor here to avoid circular imports
+                            from .payout import BetProcessor
                             
-                            # Process using manual method
-                            detector = TransactionDetector(db)
-                            tx = await detector.verify_user_submitted_tx(txid, addr)
+                            # Process into bet
+                            processor = BetProcessor()
+                            bet = await processor.process_detected_transaction(tx)
                             
-                            if tx:
-                                logger.info(f"✅ [WEBSOCKET] Transaction saved to database")
+                            if bet:
+                                result = "WIN 🎉" if bet.get("is_win") else "LOSS"
+                                logger.info(f"🎲 [WEBSOCKET] Bet created: ID {bet['_id']} - {result}")
+                                logger.info(f"💰 [WEBSOCKET] Amount: {bet['bet_amount']} sats, Payout: {bet.get('payout_amount', 0)} sats")
                                 
-                                # Import BetProcessor here to avoid circular imports
-                                from .payout import BetProcessor
-                                
-                                # Process into bet
-                                processor = BetProcessor(db)
-                                bet = processor.process_detected_transaction(tx)
-                                
-                                if bet:
-                                    result = "WIN 🎉" if bet.is_win else "LOSS"
-                                    logger.info(f"🎲 [WEBSOCKET] Bet created: ID {bet.id} - {result}")
-                                    logger.info(f"💰 [WEBSOCKET] Amount: {bet.bet_amount} sats, Payout: {bet.payout_amount or 0} sats")
-                                    
-                                    # Broadcast bet result to frontend via WebSocket
-                                    if bet.roll_result is not None:
-                                        await self._broadcast_bet_result(bet)
-                                
-                                return  # Transaction processed, stop checking
-            finally:
-                db.close()
+                                # Broadcast bet result to frontend via WebSocket
+                                if bet.get("roll_result") is not None:
+                                    await self._broadcast_bet_result(bet)
+                            
+                            return  # Transaction processed, stop checking
                 
         except Exception as e:
             logger.error(f"[WEBSOCKET] Error checking/processing tx data: {e}")
@@ -555,14 +513,14 @@ class MempoolWebSocket:
 class TransactionMonitor:
     """
     Transaction monitor service using Mempool.space WebSocket
+    MongoDB version
     
     Uses Mempool.space WebSockets for real-time transaction detection.
     """
     
-    def __init__(self, db_session_factory=None):
+    def __init__(self):
         self.running = False
         self.websocket_client = None
-        self.db_session_factory = db_session_factory
     
     async def start(self):
         """
@@ -574,8 +532,7 @@ class TransactionMonitor:
         logger.info("[MONITOR] Using Mempool.space WebSocket for real-time detection")
         
         # Create and start WebSocket client
-        from .database import get_db
-        self.websocket_client = MempoolWebSocket(get_db)
+        self.websocket_client = MempoolWebSocket()
         
         # Subscribe to house address
         asyncio.create_task(self._subscribe_to_house_address())
