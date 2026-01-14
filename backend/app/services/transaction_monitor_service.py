@@ -39,11 +39,11 @@ class TransactionMonitorService:
             logger.warning("[MONITOR] Run the admin script to create wallets first")
             return
         
-        # Subscribe to all vault wallet addresses
+        # Add all vault wallet addresses to monitoring list
         for wallet in active_wallets:
             address = wallet["address"]
             multiplier = wallet["multiplier"]
-            await self.websocket_client.subscribe_address(address)
+            self.websocket_client.add_monitored_address(address)
             self.monitored_addresses.add(address)
             logger.info(f"[MONITOR] 📍 Monitoring {multiplier}x wallet: {address[:20]}...")
         
@@ -76,12 +76,12 @@ class TransactionMonitorService:
         return self.running
     
     async def subscribe_address(self, address: str):
-        """Subscribe to additional vault address"""
+        """Add additional vault address to monitoring"""
         if address in self.monitored_addresses:
             logger.warning(f"[MONITOR] Already monitoring: {address[:20]}...")
             return
         
-        await self.websocket_client.subscribe_address(address)
+        self.websocket_client.add_monitored_address(address)
         self.monitored_addresses.add(address)
         logger.info(f"[MONITOR] 📍 Added address to monitoring: {address[:20]}...")
     

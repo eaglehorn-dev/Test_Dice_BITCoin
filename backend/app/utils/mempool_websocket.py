@@ -45,80 +45,101 @@ class MempoolWebSocket:
             logger.error(f"[WEBSOCKET] Connection failed: {e}")
             raise WebSocketException(f"Failed to connect: {str(e)}")
     
-    async def subscribe_address(self, address: str):
+    def add_monitored_address(self, address: str):
         """
-        Subscribe to a specific Bitcoin address for transaction updates
+        Add address to monitoring list (for filtering mempool data)
         
         Args:
-            address: Bitcoin address to track
+            address: Bitcoin address to monitor
         """
-        if not self.websocket:
-            logger.warning("[WEBSOCKET] Not connected, cannot subscribe")
-            return
-        
-        try:
-            # Send track-address message
-            track_msg = {"track-address": address}
-            await self.websocket.send(json.dumps(track_msg))
-            
-            # Add to subscribed set
-            self.subscribed_addresses.add(address)
-            
-            logger.info(f"[WEBSOCKET] 📍 Tracking address: {address[:20]}...")
-            
-        except Exception as e:
-            logger.error(f"[WEBSOCKET] Failed to subscribe to {address}: {e}")
-            raise WebSocketException(f"Failed to subscribe: {str(e)}")
+        self.subscribed_addresses.add(address)
+        logger.info(f"[WEBSOCKET] 📍 Added to monitoring list: {address[:20]}...")
     
     async def subscribe_to_mempool(self):
-        """Subscribe to mempool live updates"""
+        """Subscribe to ALL mempool transactions (live feed)"""
         if not self.websocket:
             logger.warning("[WEBSOCKET] Not connected, cannot subscribe to mempool")
             return
         
         try:
-            init_msg = {"action": "want", "data": ["blocks", "mempool-blocks"]}
+            # Subscribe to mempool transactions feed
+            init_msg = {"action": "want", "data": ["blocks", "mempool-blocks", "live-2h-chart"]}
             await self.websocket.send(json.dumps(init_msg))
-            logger.info("[WEBSOCKET] 📊 Subscribed to mempool updates")
+            
+            # Enable tracking for mempool transactions
+            await self.websocket.send(json.dumps({"track-mempool": "all"}))
+            
+            logger.info("[WEBSOCKET] 📊 Subscribed to FULL mempool transaction feed")
+            logger.info(f"[WEBSOCKET] 🔍 Monitoring {len(self.subscribed_addresses)} target addresses")
             
         except Exception as e:
             logger.error(f"[WEBSOCKET] Failed to subscribe to mempool: {e}")
     
     async def handle_message(self, message: str):
-        """Handle incoming WebSocket message"""
+        """Handle incoming WebSocket message and filter for target addresses"""
         try:
             data = json.loads(message)
             
-            # Handle address-transactions messages (our target)
-            if "address-transactions" in data:
-                address_txs = data["address-transactions"]
+            # Handle new mempool transaction
+            if "tx" in data or "mempoolInfo" in data:
+                # Extract transaction data
+                tx_data = data.get("tx") or data.get("mempoolInfo")
                 
-                # Handle both list and dict formats
-                if isinstance(address_txs, list):
-                    for tx in address_txs:
-                        if isinstance(tx, dict):
-                            txid = tx.get('txid')
-                            if txid:
-                                await self._process_transaction(txid)
-                        elif isinstance(tx, str):
-                            await self._process_transaction(tx)
-                elif isinstance(address_txs, dict):
-                    txid = address_txs.get('txid')
-                    if txid:
-                        await self._process_transaction(txid)
-                elif isinstance(address_txs, str):
-                    await self._process_transaction(address_txs)
+                if tx_data and isinstance(tx_data, dict):
+                    await self._check_transaction_for_targets(tx_data)
             
-            # Log other message types for debugging
-            elif "mempool-blocks" in data or "blocks" in data:
-                pass  # Ignore mempool/block updates
-            else:
-                logger.debug(f"[WEBSOCKET] Other message type: {list(data.keys())}")
+            # Handle blocks/mempool-blocks (ignore)
+            elif "mempool-blocks" in data or "blocks" in data or "live-2h-chart" in data:
+                pass  # Ignore block/chart updates
+            
+            # Handle other transaction formats
+            elif isinstance(data, dict):
+                # Check if this is transaction data
+                if "txid" in data or "vout" in data:
+                    await self._check_transaction_for_targets(data)
+                else:
+                    logger.debug(f"[WEBSOCKET] Other message type: {list(data.keys())}")
                 
         except json.JSONDecodeError:
             logger.warning(f"[WEBSOCKET] Failed to parse message as JSON")
         except Exception as e:
             logger.error(f"[WEBSOCKET] Error handling message: {e}")
+    
+    async def _check_transaction_for_targets(self, tx_data: dict):
+        """
+        Check if transaction involves any of our target addresses
+        
+        Args:
+            tx_data: Transaction data from mempool
+        """
+        try:
+            # Extract txid
+            txid = tx_data.get('txid')
+            if not txid:
+                return
+            
+            # Get outputs
+            vout = tx_data.get('vout', [])
+            if not vout:
+                return
+            
+            # Check each output against our monitored addresses
+            for output in vout:
+                output_address = output.get('scriptpubkey_address') or output.get('address')
+                
+                if output_address in self.subscribed_addresses:
+                    # MATCH FOUND! Transaction pays to one of our wallets
+                    amount_sats = output.get('value', 0)
+                    amount_btc = amount_sats / 100_000_000
+                    
+                    logger.info(f"🎯 [MEMPOOL FILTER] MATCH! TX {txid[:16]}... → {output_address[:10]}... ({amount_btc:.8f} BTC)")
+                    
+                    # Process this transaction
+                    await self._process_transaction(txid)
+                    return  # Only process once per transaction
+                    
+        except Exception as e:
+            logger.error(f"[WEBSOCKET] Error checking transaction for targets: {e}")
     
     async def _process_transaction(self, txid: str):
         """Process a transaction detected via WebSocket"""
@@ -242,17 +263,12 @@ class MempoolWebSocket:
             try:
                 # Connect
                 if await self.connect():
-                    # Subscribe to mempool live data
+                    # Subscribe to FULL mempool feed
                     await self.subscribe_to_mempool()
                     
-                    # Re-track addresses
-                    if self.subscribed_addresses:
-                        logger.info(f"[WEBSOCKET] Re-tracking {len(self.subscribed_addresses)} addresses")
-                        for address in list(self.subscribed_addresses):
-                            track_msg = {"track-address": address}
-                            await self.websocket.send(json.dumps(track_msg))
+                    logger.info(f"[WEBSOCKET] 🔍 Filtering for {len(self.subscribed_addresses)} target addresses")
                     
-                    # Listen for messages
+                    # Listen for messages and filter
                     await self.listen()
                 
                 # If we get here, connection was lost
