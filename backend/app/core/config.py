@@ -10,7 +10,12 @@ from pydantic import Field, validator
 from loguru import logger
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(extra='ignore')
+    model_config = SettingsConfigDict(
+        extra='ignore',
+        env_file='.env',
+        env_file_encoding='utf-8',
+        case_sensitive=True
+    )
     """
     Environment-based configuration using Pydantic Settings
     
@@ -242,12 +247,6 @@ class Settings(BaseSettings):
         logger.info(f"[CONFIG] Environment: {mode}")
         logger.info(f"[CONFIG] Database: {self.MONGODB_DB_NAME}")
         logger.info(f"[CONFIG] Bitcoin Network: {self.NETWORK}")
-    
-    class Config:
-        """Pydantic Settings configuration"""
-        env_file = ".env"
-        env_file_encoding = "utf-8"
-        case_sensitive = True
 
 
 settings = Settings()
