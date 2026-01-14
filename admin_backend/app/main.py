@@ -33,12 +33,20 @@ async def lifespan(app: FastAPI):
     logger.info("🔐 ADMIN BACKEND STARTING")
     logger.info("=" * 60)
     
+    # Print environment banner
+    admin_config.print_startup_banner()
+    
     try:
         admin_config.validate()
         logger.success("[CONFIG] Configuration validated")
     except Exception as e:
         logger.error(f"[CONFIG] Validation failed: {e}")
         raise
+    
+    # CRITICAL: Verify network consistency in production
+    if admin_config.ENV_CURRENT:
+        logger.warning("[SECURITY] Production mode detected - verifying network...")
+        admin_config.validate_network_consistency()
     
     await connect_db()
     logger.success("[DATABASE] Connected to MongoDB")

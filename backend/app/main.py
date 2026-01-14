@@ -51,12 +51,20 @@ async def lifespan(app: FastAPI):
     """Manage application lifespan"""
     logger.info("[STARTUP] Starting Bitcoin Dice Game API")
     
+    # Print environment banner
+    config.print_startup_banner()
+    
     try:
         config.validate()
         logger.info("[OK] Configuration validated")
     except ValueError as e:
         logger.error(f"❌ Configuration error: {e}")
         raise
+    
+    # CRITICAL: Verify network consistency in production
+    if config.ENV_CURRENT:
+        logger.warning("[SECURITY] Production mode detected - verifying network...")
+        config.validate_network_consistency()
     
     await init_db()
     logger.info("[OK] Database initialized")

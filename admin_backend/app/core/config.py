@@ -1,64 +1,231 @@
 """
 Admin Backend Configuration
-Separate from the main dice game backend for security isolation
+Enterprise-grade environment-based configuration using Pydantic Settings
 """
-import os
+import sys
 from typing import List
-from dotenv import load_dotenv
+from pydantic_settings import BaseSettings
+from pydantic import Field
+from loguru import logger
 
-load_dotenv()
-
-class AdminConfig:
-    """Admin system configuration"""
+class AdminSettings(BaseSettings):
+    """
+    Environment-based admin configuration using Pydantic Settings
     
-    HOST: str = os.getenv("HOST", "0.0.0.0")
-    PORT: int = int(os.getenv("PORT", "8001"))
-    DEBUG: bool = os.getenv("DEBUG", "false").lower() == "true"
+    ENV_CURRENT: True = Production, False = Test
+    Automatically loads different configuration sets based on this toggle
+    """
     
-    ADMIN_API_KEY: str = os.getenv("ADMIN_API_KEY", "")
-    ADMIN_IP_WHITELIST: str = os.getenv("ADMIN_IP_WHITELIST", "127.0.0.1,::1")
+    # ============================================================
+    # ENVIRONMENT TOGGLE (Single Source of Truth)
+    # ============================================================
+    ENV_CURRENT: bool = Field(False, description="True = Production, False = Test")
     
-    MONGODB_URL: str = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
-    MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME", "dice_game")
+    # ============================================================
+    # SECURITY
+    # ============================================================
+    ADMIN_API_KEY: str = Field("", description="Admin API key (32+ chars)")
+    ADMIN_IP_WHITELIST: str = Field("127.0.0.1,::1", description="Comma-separated IP whitelist")
     
-    MASTER_ENCRYPTION_KEY: str = os.getenv("MASTER_ENCRYPTION_KEY", "")
+    # ============================================================
+    # DATABASE CONFIGURATION (Dynamic)
+    # ============================================================
+    MONGODB_URL_PROD: str = Field("mongodb://localhost:27017", description="Production MongoDB")
+    MONGODB_URL_TEST: str = Field("mongodb://localhost:27017", description="Test MongoDB")
+    MONGODB_DB_NAME_PROD: str = Field("dice_prod", description="Production database name")
+    MONGODB_DB_NAME_TEST: str = Field("dice_test", description="Test database name")
     
-    NETWORK: str = os.getenv("NETWORK", "mainnet")
-    COLD_STORAGE_ADDRESS: str = os.getenv("COLD_STORAGE_ADDRESS", "")
+    # ============================================================
+    # WALLET ENCRYPTION KEYS (Dynamic)
+    # ============================================================
+    PROD_MASTER_KEY: str = Field("", description="Production master encryption key")
+    TEST_MASTER_KEY: str = Field("", description="Test master encryption key")
     
-    COINGECKO_API_URL: str = os.getenv("COINGECKO_API_URL", "https://api.coingecko.com/api/v3")
-    MEMPOOL_SPACE_API: str = os.getenv("MEMPOOL_SPACE_API", "https://mempool.space/api")
-    BLOCKSTREAM_API: str = os.getenv("BLOCKSTREAM_API", "https://blockstream.info/api")
+    # ============================================================
+    # BITCOIN NETWORK CONFIGURATION (Dynamic)
+    # ============================================================
+    BTC_NETWORK_PROD: str = Field("mainnet", description="Production Bitcoin network")
+    BTC_NETWORK_TEST: str = Field("testnet", description="Test Bitcoin network")
     
-    DEFAULT_TX_FEE_SATOSHIS: int = int(os.getenv("DEFAULT_TX_FEE_SATOSHIS", "250"))
+    MEMPOOL_API_PROD: str = Field("https://mempool.space/api", description="Mainnet Mempool API")
+    MEMPOOL_API_TEST: str = Field("https://mempool.space/testnet/api", description="Testnet Mempool API")
     
-    FRONTEND_URL: str = os.getenv("FRONTEND_URL", "http://localhost:3001")
+    BLOCKSTREAM_API_PROD: str = Field("https://blockstream.info/api", description="Mainnet Blockstream API")
+    BLOCKSTREAM_API_TEST: str = Field("https://blockstream.info/testnet/api", description="Testnet Blockstream API")
     
-    @classmethod
-    def get_ip_whitelist(cls) -> List[str]:
+    # ============================================================
+    # COLD STORAGE
+    # ============================================================
+    COLD_STORAGE_ADDRESS_PROD: str = Field("", description="Production cold storage address")
+    COLD_STORAGE_ADDRESS_TEST: str = Field("", description="Test cold storage address")
+    
+    # ============================================================
+    # API KEYS (Dynamic)
+    # ============================================================
+    COINGECKO_API_KEY_PROD: str = Field("", description="CoinGecko Pro API key (production)")
+    COINGECKO_API_KEY_TEST: str = Field("", description="CoinGecko Free API key (test)")
+    COINGECKO_API_URL: str = Field("https://api.coingecko.com/api/v3", description="CoinGecko API base URL")
+    
+    # ============================================================
+    # SHARED CONFIGURATION
+    # ============================================================
+    DEFAULT_TX_FEE_SATOSHIS: int = 250
+    HOST: str = "0.0.0.0"
+    PORT: int = 8001
+    DEBUG: bool = False
+    FRONTEND_URL: str = "http://localhost:3001"
+    
+    # ============================================================
+    # DYNAMIC PROPERTIES (Automatically switch based on ENV_CURRENT)
+    # ============================================================
+    
+    @property
+    def MONGODB_URL(self) -> str:
+        """Dynamic MongoDB URL based on environment"""
+        return self.MONGODB_URL_PROD if self.ENV_CURRENT else self.MONGODB_URL_TEST
+    
+    @property
+    def MONGODB_DB_NAME(self) -> str:
+        """Dynamic database name based on environment"""
+        return self.MONGODB_DB_NAME_PROD if self.ENV_CURRENT else self.MONGODB_DB_NAME_TEST
+    
+    @property
+    def MASTER_ENCRYPTION_KEY(self) -> str:
+        """Dynamic encryption key based on environment"""
+        return self.PROD_MASTER_KEY if self.ENV_CURRENT else self.TEST_MASTER_KEY
+    
+    @property
+    def NETWORK(self) -> str:
+        """Dynamic Bitcoin network based on environment"""
+        return self.BTC_NETWORK_PROD if self.ENV_CURRENT else self.BTC_NETWORK_TEST
+    
+    @property
+    def MEMPOOL_SPACE_API(self) -> str:
+        """Dynamic Mempool API based on environment"""
+        return self.MEMPOOL_API_PROD if self.ENV_CURRENT else self.MEMPOOL_API_TEST
+    
+    @property
+    def BLOCKSTREAM_API(self) -> str:
+        """Dynamic Blockstream API based on environment"""
+        return self.BLOCKSTREAM_API_PROD if self.ENV_CURRENT else self.BLOCKSTREAM_API_TEST
+    
+    @property
+    def COLD_STORAGE_ADDRESS(self) -> str:
+        """Dynamic cold storage address based on environment"""
+        return self.COLD_STORAGE_ADDRESS_PROD if self.ENV_CURRENT else self.COLD_STORAGE_ADDRESS_TEST
+    
+    @property
+    def COINGECKO_API_KEY(self) -> str:
+        """Dynamic CoinGecko API key based on environment"""
+        return self.COINGECKO_API_KEY_PROD if self.ENV_CURRENT else self.COINGECKO_API_KEY_TEST
+    
+    # ============================================================
+    # HELPER METHODS
+    # ============================================================
+    
+    def get_ip_whitelist(self) -> List[str]:
         """Parse IP whitelist from comma-separated string"""
-        return [ip.strip() for ip in cls.ADMIN_IP_WHITELIST.split(',') if ip.strip()]
+        return [ip.strip() for ip in self.ADMIN_IP_WHITELIST.split(',') if ip.strip()]
     
-    @classmethod
-    def validate(cls) -> bool:
+    def validate(self) -> bool:
         """Validate critical admin configuration"""
         errors = []
         
-        if not cls.ADMIN_API_KEY:
+        if not self.ADMIN_API_KEY:
             errors.append("ADMIN_API_KEY is required for admin authentication")
         
-        if len(cls.ADMIN_API_KEY) < 32:
+        if len(self.ADMIN_API_KEY) < 32:
             errors.append("ADMIN_API_KEY must be at least 32 characters for security")
         
-        if not cls.MASTER_ENCRYPTION_KEY:
+        if not self.MASTER_ENCRYPTION_KEY:
             errors.append("MASTER_ENCRYPTION_KEY is required to decrypt wallet private keys")
         
-        if not cls.COLD_STORAGE_ADDRESS:
-            errors.append("COLD_STORAGE_ADDRESS is required for treasury withdrawals")
+        if self.ENV_CURRENT and not self.PROD_MASTER_KEY:
+            errors.append("PROD_MASTER_KEY is required when ENV_CURRENT=True")
+        
+        if not self.ENV_CURRENT and not self.TEST_MASTER_KEY:
+            errors.append("TEST_MASTER_KEY is required when ENV_CURRENT=False")
+        
+        if self.ENV_CURRENT and not self.COLD_STORAGE_ADDRESS_PROD:
+            errors.append("COLD_STORAGE_ADDRESS_PROD is required in production mode")
         
         if errors:
             raise ValueError(f"Admin configuration errors: {'; '.join(errors)}")
         
         return True
+    
+    def validate_network_consistency(self) -> bool:
+        """Verify Bitcoin network matches environment in production"""
+        if not self.ENV_CURRENT:
+            logger.info("[ADMIN] Running in TEST mode - skipping network verification")
+            return True
+        
+        logger.info("[ADMIN] Running in PRODUCTION mode - verifying Bitcoin network...")
+        
+        try:
+            import httpx
+            import asyncio
+            
+            async def check_network():
+                async with httpx.AsyncClient(timeout=10) as client:
+                    response = await client.get(f"{self.MEMPOOL_SPACE_API}/blocks/tip/height")
+                    response.raise_for_status()
+                    
+                    api_url = str(response.url)
+                    is_mainnet_api = "mempool.space/api" in api_url and "/testnet" not in api_url
+                    
+                    if not is_mainnet_api:
+                        logger.critical("[ADMIN] FATAL: ENV_CURRENT=True but API is TESTNET!")
+                        logger.critical(f"[ADMIN] API URL: {api_url}")
+                        logger.critical("[ADMIN] This would cause treasury withdrawals on wrong network!")
+                        logger.critical("[ADMIN] Shutting down to prevent disaster...")
+                        return False
+                    
+                    logger.success("[ADMIN] ✓ Bitcoin network verified as MAINNET")
+                    return True
+            
+            result = asyncio.run(check_network())
+            if not result:
+                sys.exit(1)
+            return result
+            
+        except Exception as e:
+            logger.error(f"[ADMIN] Network verification failed: {e}")
+            if self.ENV_CURRENT:
+                logger.critical("[ADMIN] FATAL: Cannot verify mainnet in production mode!")
+                sys.exit(1)
+            return False
+    
+    def print_startup_banner(self):
+        """Print visual startup banner indicating environment"""
+        mode = "PRODUCTION" if self.ENV_CURRENT else "TEST"
+        color_code = "\033[91m" if self.ENV_CURRENT else "\033[93m"
+        reset_code = "\033[0m"
+        
+        banner = f"""
+{color_code}
+╔══════════════════════════════════════════════════════════╗
+║                                                          ║
+║  {'🔐 ADMIN - PRODUCTION MODE 🔐' if self.ENV_CURRENT else '🔐 ADMIN - TEST MODE 🔐':^56}  ║
+║                                                          ║
+║  Database:      {self.MONGODB_DB_NAME:<41}  ║
+║  Network:       {self.NETWORK:<41}  ║
+║  Cold Storage:  {self.COLD_STORAGE_ADDRESS[:41]:<41}  ║
+║  API:           {self.MEMPOOL_SPACE_API[:41]:<41}  ║
+║                                                          ║
+╚══════════════════════════════════════════════════════════╝
+{reset_code}
+"""
+        print(banner)
+        logger.info(f"[ADMIN CONFIG] Environment: {mode}")
+        logger.info(f"[ADMIN CONFIG] Database: {self.MONGODB_DB_NAME}")
+        logger.info(f"[ADMIN CONFIG] Bitcoin Network: {self.NETWORK}")
+        logger.info(f"[ADMIN CONFIG] Cold Storage: {self.COLD_STORAGE_ADDRESS[:20]}...")
+    
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+        case_sensitive = True
 
-admin_config = AdminConfig()
+
+admin_config = AdminSettings()
