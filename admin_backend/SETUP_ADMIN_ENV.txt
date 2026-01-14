@@ -1,0 +1,74 @@
+# ============================================================
+# ADMIN BACKEND .env FILE SETUP
+# ============================================================
+# Copy everything below this line to admin_backend/.env
+# ============================================================
+
+# ============================================================
+# ENVIRONMENT TOGGLE
+# ============================================================
+ENV_CURRENT=false
+
+# ============================================================
+# SECURITY
+# ============================================================
+ADMIN_API_KEY=d4ce002055be58b0adfc5d674221e4c6f23d5c9a501e08c9bff3cc6e09f6fdc4
+ADMIN_IP_WHITELIST=127.0.0.1,::1
+
+# ============================================================
+# DATABASE - PRODUCTION
+# ============================================================
+MONGODB_URL_PROD=mongodb://localhost:27017
+MONGODB_DB_NAME_PROD=dice_prod
+
+# ============================================================
+# DATABASE - TEST
+# ============================================================
+MONGODB_URL_TEST=mongodb://localhost:27017
+MONGODB_DB_NAME_TEST=dice_test
+
+# ============================================================
+# WALLET ENCRYPTION KEYS
+# ============================================================
+PROD_MASTER_KEY=MvOAzwI8LtCUovHjgaT_os1SMkWzJEyYYqE0hjDZeg0=
+TEST_MASTER_KEY=MvOAzwI8LtCUovHjgaT_os1SMkWzJEyYYqE0hjDZeg0=
+
+# ============================================================
+# BITCOIN NETWORK - PRODUCTION
+# ============================================================
+BTC_NETWORK_PROD=mainnet
+MEMPOOL_API_PROD=https://mempool.space/api
+BLOCKSTREAM_API_PROD=https://blockstream.info/api
+
+# ============================================================
+# BITCOIN NETWORK - TEST
+# ============================================================
+BTC_NETWORK_TEST=testnet
+MEMPOOL_API_TEST=https://mempool.space/testnet/api
+BLOCKSTREAM_API_TEST=https://blockstream.info/testnet/api
+
+# ============================================================
+# COLD STORAGE ADDRESSES
+# ============================================================
+COLD_STORAGE_ADDRESS_PROD=
+COLD_STORAGE_ADDRESS_TEST=
+
+# ============================================================
+# COINGECKO API
+# ============================================================
+COINGECKO_API_KEY_PROD=
+COINGECKO_API_KEY_TEST=
+COINGECKO_API_URL=https://api.coingecko.com/api/v3
+
+# ============================================================
+# SERVER CONFIGURATION
+# ============================================================
+HOST=0.0.0.0
+PORT=8001
+DEBUG=false
+FRONTEND_URL=http://localhost:3001
+
+# ============================================================
+# TRANSACTION FEE
+# ============================================================
+DEFAULT_TX_FEE_SATOSHIS=250

@@ -1,0 +1,14 @@
+# ============================================================
+# ADMIN FRONTEND .env FILE SETUP
+# ============================================================
+# Copy everything below to admin_frontend/.env
+# ============================================================
+
+REACT_APP_API_URL=http://localhost:8001
+REACT_APP_ADMIN_API_KEY=d4ce002055be58b0adfc5d674221e4c6f23d5c9a501e08c9bff3cc6e09f6fdc4
+PORT=3001
+REACT_APP_WS_URL=ws://localhost:8001
+REACT_APP_TITLE=Bitcoin Dice - Admin Dashboard
+REACT_APP_DESCRIPTION=Admin Management System
+BROWSER=none
+SKIP_PREFLIGHT_CHECK=true
