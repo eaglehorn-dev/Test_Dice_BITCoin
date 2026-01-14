@@ -18,10 +18,15 @@ class CryptoService:
         master_key = admin_config.MASTER_ENCRYPTION_KEY
         if not master_key:
             raise ValueError("MASTER_ENCRYPTION_KEY not configured")
+        
+        logger.info(f"[CRYPTO] Loading key: {master_key[:10]}... (length: {len(master_key)})")
+        
         try:
             self._fernet = Fernet(master_key.encode('utf-8'))
-            logger.info("[CRYPTO] Initialized with master encryption key")
+            logger.info("[CRYPTO] ✅ Initialized with master encryption key")
         except Exception as e:
+            logger.error(f"[CRYPTO] ❌ Key validation failed: {e}")
+            logger.error(f"[CRYPTO] Key must be 44 characters, got: {len(master_key)}")
             raise ValueError(f"Invalid MASTER_ENCRYPTION_KEY: {e}")
     
     def encrypt(self, data: str) -> str:
