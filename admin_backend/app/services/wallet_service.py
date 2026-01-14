@@ -37,12 +37,14 @@ class WalletService:
                 "multiplier": multiplier,
                 "address": address,
                 "private_key_encrypted": encrypted_private_key,
+                "network": self.network,  # ✅ Add network field
                 "is_active": True,
                 "is_depleted": False,
                 "total_received": 0,
                 "total_sent": 0,
                 "bet_count": 0,
                 "last_used_at": None,
+                "label": f"{multiplier}x Wallet",  # ✅ Add label field
                 "created_at": __import__('datetime').datetime.utcnow()
             }
             
