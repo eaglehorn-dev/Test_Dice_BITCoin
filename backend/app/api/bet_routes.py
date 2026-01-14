@@ -16,7 +16,9 @@ router = APIRouter(prefix="/api/bets", tags=["bets"])
 @router.get("/history/{address}", response_model=BetHistoryResponse)
 async def get_bet_history(
     address: str,
-    limit: int = Query(default=50, le=100, description="Number of bets to return")
+    limit: int = Query(default=50, le=100, description="Number of bets to return"),
+    multiplier: int = Query(default=None, description="Filter by multiplier"),
+    search: str = Query(default=None, description="Search by target_address or txid")
 ):
     """
     Get betting history for a specific user address
@@ -24,6 +26,13 @@ async def get_bet_history(
     Args:
         address: User's Bitcoin address
         limit: Maximum number of bets to return (max 100)
+        multiplier: Optional filter by multiplier (e.g., 3 for 3x bets)
+        search: Optional search by target wallet address or transaction ID
+        
+    Examples:
+        GET /api/bets/history/bc1q...?limit=20
+        GET /api/bets/history/bc1q...?multiplier=3
+        GET /api/bets/history/bc1q...?search=bc1qq5tdg4c
     """
     try:
         users_col = get_users_collection()
@@ -39,9 +48,19 @@ async def get_bet_history(
                 total_lost=0
             )
         
-        bets = await bets_col.find(
-            {"user_id": user["_id"], "roll_result": {"$ne": None}}
-        ).sort("created_at", -1).limit(limit).to_list(length=limit)
+        query = {"user_id": user["_id"], "roll_result": {"$ne": None}}
+        
+        if multiplier:
+            query["multiplier"] = multiplier
+        
+        if search:
+            query["$or"] = [
+                {"target_address": {"$regex": search, "$options": "i"}},
+                {"deposit_txid": {"$regex": search, "$options": "i"}},
+                {"payout_txid": {"$regex": search, "$options": "i"}}
+            ]
+        
+        bets = await bets_col.find(query).sort("created_at", -1).limit(limit).to_list(length=limit)
         
         bet_items = [
             BetHistoryItem(

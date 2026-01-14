@@ -23,7 +23,7 @@ from app.core.exceptions import (
 )
 from app.models.database import init_db, disconnect_db
 from app.services.transaction_monitor_service import TransactionMonitorService
-from app.api import websocket_router, bet_router, stats_router, admin_router, seed_router
+from app.api import websocket_router, bet_router, stats_router, admin_router, seed_router, wallet_router
 
 logger.remove()
 logger.add(
@@ -152,6 +152,7 @@ app.include_router(bet_router)
 app.include_router(stats_router)
 app.include_router(admin_router)
 app.include_router(seed_router)
+app.include_router(wallet_router)
 
 
 @app.get("/")

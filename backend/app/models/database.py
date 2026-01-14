@@ -79,6 +79,11 @@ def get_deposit_addresses_collection() -> AsyncIOMotorCollection:
     return get_database()["deposit_addresses"]
 
 
+def get_wallets_collection() -> AsyncIOMotorCollection:
+    """Get wallets collection (encrypted vault)"""
+    return get_database()["wallets"]
+
+
 async def create_indexes():
     """Create database indexes for optimal query performance"""
     db = get_database()
@@ -95,6 +100,9 @@ async def create_indexes():
     await db.bets.create_index([("user_id", 1), ("created_at", -1)])
     await db.bets.create_index("status")
     await db.bets.create_index("deposit_txid")
+    await db.bets.create_index("target_address")
+    await db.bets.create_index("multiplier")
+    await db.bets.create_index([("target_address", 1), ("multiplier", 1)])
     await db.bets.create_index([("created_at", -1)])
     
     # Transactions indexes
@@ -114,6 +122,12 @@ async def create_indexes():
     await db.deposit_addresses.create_index("address", unique=True)
     await db.deposit_addresses.create_index([("user_id", 1), ("is_active", -1)])
     await db.deposit_addresses.create_index("is_active")
+    
+    # Wallets indexes (Vault)
+    await db.wallets.create_index("address", unique=True)
+    await db.wallets.create_index("multiplier")
+    await db.wallets.create_index([("is_active", -1), ("multiplier", 1)])
+    await db.wallets.create_index("network")
     
     logger.info("[OK] Database indexes created")
 

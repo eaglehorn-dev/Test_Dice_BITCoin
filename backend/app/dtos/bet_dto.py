@@ -44,6 +44,7 @@ class BetHistoryItem(BaseModel):
     bet_id: str
     bet_amount: int
     target_multiplier: float
+    multiplier: int
     win_chance: float
     roll_result: float
     is_win: bool
@@ -51,6 +52,8 @@ class BetHistoryItem(BaseModel):
     profit: int
     created_at: datetime
     nonce: int
+    target_address: str = None
+    deposit_txid: str = None
 
 
 class BetHistoryResponse(BaseModel):

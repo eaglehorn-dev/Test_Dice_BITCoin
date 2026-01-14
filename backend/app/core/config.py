@@ -15,6 +15,8 @@ class Config:
     HOUSE_ADDRESS: str = os.getenv("HOUSE_ADDRESS", "")
     HOUSE_MNEMONIC: Optional[str] = os.getenv("HOUSE_MNEMONIC")
     
+    MASTER_ENCRYPTION_KEY: str = os.getenv("MASTER_ENCRYPTION_KEY", "")
+    
     MONGODB_URL: str = os.getenv("MONGODB_URL", "mongodb://localhost:27017")
     MONGODB_DB_NAME: str = os.getenv("MONGODB_DB_NAME", "dice_game")
     
@@ -68,6 +70,9 @@ class Config:
     def validate(cls) -> bool:
         """Validate critical configuration"""
         errors = []
+        
+        if not cls.MASTER_ENCRYPTION_KEY:
+            errors.append("MASTER_ENCRYPTION_KEY is required for wallet vault encryption")
         
         if not cls.HOUSE_PRIVATE_KEY and not cls.HOUSE_MNEMONIC:
             errors.append("Either HOUSE_PRIVATE_KEY or HOUSE_MNEMONIC is required")

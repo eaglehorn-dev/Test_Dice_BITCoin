@@ -8,6 +8,7 @@ from .bet import BetModel
 from .transaction import TransactionModel
 from .payout import PayoutModel
 from .deposit_address import DepositAddressModel
+from .wallet import WalletModel
 
 __all__ = [
     "PyObjectId",
@@ -17,5 +18,6 @@ __all__ = [
     "BetModel",
     "TransactionModel",
     "PayoutModel",
-    "DepositAddressModel"
+    "DepositAddressModel",
+    "WalletModel"
 ]
