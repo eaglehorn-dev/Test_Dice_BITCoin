@@ -56,7 +56,11 @@ class AnalyticsService:
             }
         ]
         
-        result = await self.bets_collection.aggregate(pipeline).to_list(length=1)
+        try:
+            result = await self.bets_collection.aggregate(pipeline).to_list(length=1)
+        except Exception as e:
+            logger.error(f"[ANALYTICS] Failed to get stats for {period}: {e}")
+            result = []
         
         if not result:
             return {
@@ -104,8 +108,12 @@ class AnalyticsService:
             {"$sort": {"multiplier": 1}}
         ]
         
-        results = await self.bets_collection.aggregate(pipeline).to_list(length=None)
-        return results
+        try:
+            results = await self.bets_collection.aggregate(pipeline).to_list(length=None)
+            return results
+        except Exception as e:
+            logger.error(f"[ANALYTICS] Failed to get volume by multiplier: {e}")
+            return []
     
     async def get_daily_stats(self, days: int = 30) -> List[Dict[str, Any]]:
         """Get daily statistics for the last N days"""
