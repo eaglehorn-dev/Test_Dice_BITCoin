@@ -6,14 +6,24 @@ import asyncio
 import sys
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
 from loguru import logger
 
 from app.core.config import config
+from app.core.exceptions import (
+    DiceGameException,
+    BetNotFoundException,
+    TransactionNotFoundException,
+    InvalidBetException,
+    InsufficientFundsException,
+    DatabaseException
+)
 from app.models.database import init_db, disconnect_db
 from app.services.transaction_monitor_service import TransactionMonitorService
-from app.api import websocket_router, bet_router, stats_router, admin_router, seed_router, manager
+from app.api import websocket_router, bet_router, stats_router, admin_router, seed_router
 
 # Setup Loguru logging
 logger.remove()  # Remove default handler
@@ -88,6 +98,67 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ============================================================
+# GLOBAL EXCEPTION HANDLERS
+# ============================================================
+
+@app.exception_handler(DiceGameException)
+async def dice_game_exception_handler(request: Request, exc: DiceGameException):
+    """Handle all custom game exceptions"""
+    status_code = status.HTTP_400_BAD_REQUEST
+    
+    # Map specific exceptions to appropriate HTTP status codes
+    if isinstance(exc, BetNotFoundException) or isinstance(exc, TransactionNotFoundException):
+        status_code = status.HTTP_404_NOT_FOUND
+    elif isinstance(exc, InvalidBetException):
+        status_code = status.HTTP_400_BAD_REQUEST
+    elif isinstance(exc, InsufficientFundsException):
+        status_code = status.HTTP_402_PAYMENT_REQUIRED
+    elif isinstance(exc, DatabaseException):
+        status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+    
+    logger.error(f"[API ERROR] {exc.__class__.__name__}: {exc.message}")
+    
+    return JSONResponse(
+        status_code=status_code,
+        content={
+            "error": exc.__class__.__name__,
+            "message": exc.message,
+            "detail": exc.details if hasattr(exc, 'details') else None
+        }
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Handle Pydantic validation errors"""
+    logger.warning(f"[VALIDATION ERROR] {exc.errors()}")
+    
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "error": "ValidationError",
+            "message": "Invalid request data",
+            "detail": exc.errors()
+        }
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch-all exception handler for unexpected errors"""
+    logger.exception(f"[UNEXPECTED ERROR] {exc}")
+    
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": "InternalServerError",
+            "message": "An unexpected error occurred",
+            "detail": str(exc) if config.DEBUG else None  # Only show details in debug mode
+        }
+    )
 
 # Include API routers
 app.include_router(websocket_router)  # WebSocket routes

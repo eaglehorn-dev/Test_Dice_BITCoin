@@ -146,8 +146,8 @@ class MempoolWebSocket:
     async def _broadcast_bet_result(self, bet: Dict[str, Any]):
         """Broadcast bet result to frontend WebSocket clients"""
         try:
-            # Import manager from main to avoid circular imports
-            from app.main import manager
+            # Import manager from utils to avoid circular imports
+            from app.utils.websocket_manager import manager
             from app.models.database import get_users_collection
             
             # Get user address

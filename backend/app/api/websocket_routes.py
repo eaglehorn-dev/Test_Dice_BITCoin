@@ -4,10 +4,9 @@ WebSocket routes for real-time updates
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from loguru import logger
 
-from app.utils.websocket_manager import ConnectionManager
+from app.utils.websocket_manager import manager
 
 router = APIRouter()
-manager = ConnectionManager()
 
 
 @router.websocket("/ws")

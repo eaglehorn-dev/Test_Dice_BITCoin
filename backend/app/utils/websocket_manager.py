@@ -131,3 +131,7 @@ class ConnectionManager:
             if info.get("address") == user_address:
                 connections.append(connection)
         return connections
+
+
+# Singleton instance - shared across the application to avoid circular imports
+manager = ConnectionManager()
