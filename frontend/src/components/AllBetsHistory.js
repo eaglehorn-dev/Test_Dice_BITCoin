@@ -18,7 +18,7 @@ function AllBetsHistory() {
     const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsHost = process.env.REACT_APP_API_URL 
       ? process.env.REACT_APP_API_URL.replace('http://', '').replace('https://', '')
-      : window.location.host.replace(':3000', ':8001');
+      : window.location.host.replace(':3000', ':8000');
     const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/bets`);
     
     ws.onopen = () => {
