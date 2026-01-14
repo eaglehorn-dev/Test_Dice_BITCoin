@@ -199,33 +199,33 @@ class AdminSettings(BaseSettings):
     def print_startup_banner(self):
         """Print visual startup banner indicating environment"""
         mode = "PRODUCTION" if self.ENV_CURRENT else "TEST"
-        color_code = "\033[91m" if self.ENV_CURRENT else "\033[93m"
-        reset_code = "\033[0m"
+        
+        # Use ASCII-safe banner for Windows compatibility
+        mode_text = "ADMIN - PRODUCTION MODE" if self.ENV_CURRENT else "ADMIN - TEST MODE"
+        separator = "=" * 60
         
         banner = f"""
-{color_code}
-╔══════════════════════════════════════════════════════════╗
-║                                                          ║
-║  {'🔐 ADMIN - PRODUCTION MODE 🔐' if self.ENV_CURRENT else '🔐 ADMIN - TEST MODE 🔐':^56}  ║
-║                                                          ║
-║  Database:      {self.MONGODB_DB_NAME:<41}  ║
-║  Network:       {self.NETWORK:<41}  ║
-║  Cold Storage:  {self.COLD_STORAGE_ADDRESS[:41]:<41}  ║
-║  API:           {self.MEMPOOL_SPACE_API[:41]:<41}  ║
-║                                                          ║
-╚══════════════════════════════════════════════════════════╝
-{reset_code}
+{separator}
+{mode_text:^60}
+{separator}
+Database:      {self.MONGODB_DB_NAME}
+Network:       {self.NETWORK}
+Cold Storage:  {self.COLD_STORAGE_ADDRESS if self.COLD_STORAGE_ADDRESS else 'not set'}
+API:           {self.MEMPOOL_SPACE_API}
+{separator}
 """
         print(banner)
         logger.info(f"[ADMIN CONFIG] Environment: {mode}")
         logger.info(f"[ADMIN CONFIG] Database: {self.MONGODB_DB_NAME}")
         logger.info(f"[ADMIN CONFIG] Bitcoin Network: {self.NETWORK}")
-        logger.info(f"[ADMIN CONFIG] Cold Storage: {self.COLD_STORAGE_ADDRESS[:20]}...")
+        cold_storage = self.COLD_STORAGE_ADDRESS[:20] if self.COLD_STORAGE_ADDRESS else "not set"
+        logger.info(f"[ADMIN CONFIG] Cold Storage: {cold_storage}...")
     
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True
+        extra = "ignore"  # Ignore extra fields from .env file
 
 
 admin_config = AdminSettings()
