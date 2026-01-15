@@ -43,7 +43,7 @@ class TransactionMonitorService:
         for wallet in active_wallets:
             address = wallet["address"]
             multiplier = wallet["multiplier"]
-            self.websocket_client.add_monitored_address(address)
+            await self.websocket_client.add_monitored_address(address)
             self.monitored_addresses.add(address)
             logger.info(f"[MONITOR] 📍 Monitoring {multiplier}x wallet: {address[:20]}...")
         

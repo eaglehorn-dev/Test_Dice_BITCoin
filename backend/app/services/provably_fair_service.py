@@ -226,7 +226,8 @@ class ProvablyFairService:
         client_seed: str,
         nonce: int,
         bet_amount: int,
-        multiplier: float
+        multiplier: float,
+        chance: float
     ) -> Dict[str, Any]:
         """
         Complete bet processing: roll dice and calculate result
@@ -237,18 +238,16 @@ class ProvablyFairService:
             nonce: Nonce
             bet_amount: Bet amount in satoshis
             multiplier: Payout multiplier
+            chance: Win chance percentage (0.01-99.99)
             
         Returns:
             Dictionary with complete bet result
         """
-        # Calculate win chance
-        win_chance = ProvablyFairService.calculate_win_chance(multiplier)
-        
         # Roll the dice
         roll = ProvablyFairService.calculate_roll(server_seed, client_seed, nonce)
         
-        # Determine win/loss
-        is_win = ProvablyFairService.is_winning_roll(roll, win_chance)
+        # Determine win/loss: bet wins if roll < chance
+        is_win = roll < chance
         
         # Calculate payout
         payout = ProvablyFairService.calculate_payout(bet_amount, multiplier, is_win)
@@ -258,7 +257,7 @@ class ProvablyFairService:
         
         return {
             "roll": roll,
-            "win_chance": win_chance,
+            "win_chance": chance,  # Use provided chance
             "is_win": is_win,
             "payout": payout,
             "profit": profit,

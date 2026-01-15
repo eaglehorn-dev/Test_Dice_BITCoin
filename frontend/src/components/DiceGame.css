@@ -1,16 +1,16 @@
 /* Satoshi-Style Simplified Dice Game */
 .dice-game {
-  padding: 20px;
+  padding: 10px;
   max-width: 1000px;
   margin: 0 auto;
 }
 
 .game-card {
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  background: #000000;
   border-radius: 20px;
-  padding: 40px;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 20px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
 .selected-wallet-info {
@@ -48,6 +48,39 @@
   margin-bottom: 16px;
 }
 
+/* Back Button */
+.btn-back {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 20px;
+  transition: all 0.3s ease;
+}
+
+.btn-back:hover {
+  background: rgba(255, 215, 0, 0.1);
+  border-color: rgba(255, 215, 0, 0.4);
+  color: #FFD700;
+  transform: translateX(-4px);
+}
+
+.back-arrow {
+  font-size: 18px;
+  transition: transform 0.3s ease;
+}
+
+.btn-back:hover .back-arrow {
+  transform: translateX(-4px);
+}
+
 .btn-retry {
   margin-top: 20px;
   padding: 12px 24px;
@@ -67,22 +100,23 @@
 
 .game-header {
   text-align: center;
-  margin-bottom: 40px;
+  margin-bottom: 20px;
 }
 
 .game-header h2 {
-  font-size: 36px;
+  font-size: 28px;
   margin-bottom: 10px;
-  background: linear-gradient(135deg, #ffd700, #ffed4e);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
+  color: #ffffff;
+  font-weight: 600;
+  letter-spacing: 1px;
 }
 
 .subtitle {
-  font-size: 18px;
-  color: rgba(255, 255, 255, 0.7);
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.5);
   margin: 0;
+  text-transform: uppercase;
+  letter-spacing: 1px;
 }
 
 .satoshi-container {
@@ -91,23 +125,170 @@
   gap: 40px;
 }
 
+/* Main Row: QR and Address in same row */
+.game-main-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 30px;
+  align-items: start;
+  margin-bottom: 40px;
+}
+
+.slider-section {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+/* Multiplier Badges Container */
+.multiplier-badges-container {
+  margin-top: 20px;
+  width: 100%;
+}
+
+/* Landscape Mode: Badges in one row below slider */
+.multiplier-badges-grid {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 0;
+}
+
+/* Portrait Mode: Badges in individual section */
+@media (max-width: 768px) {
+  .multiplier-badges-container {
+    margin-top: 30px;
+    padding: 20px 0;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+  }
+  
+  .multiplier-badges-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+    gap: 12px;
+    justify-content: center;
+    padding: 0;
+  }
+}
+
+/* Multiplier Badge */
+.multiplier-badge {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 215, 0, 0.2);
+  border-radius: 50%;
+  width: 70px;
+  height: 70px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  padding: 0;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.multiplier-badge:hover {
+  background: rgba(255, 215, 0, 0.1);
+  border-color: rgba(255, 215, 0, 0.5);
+  transform: scale(1.1);
+  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.3);
+}
+
+.multiplier-badge.active {
+  background: rgba(255, 215, 0, 0.15);
+  border-color: #ffd700;
+  border-width: 2px;
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.4);
+}
+
+.badge-multiplier {
+  font-size: 1.1em;
+  font-weight: 700;
+  color: #ffd700;
+  line-height: 1.2;
+  margin-bottom: 2px;
+}
+
+.badge-chance {
+  font-size: 0.7em;
+  color: rgba(255, 255, 255, 0.7);
+  font-weight: 400;
+  line-height: 1;
+}
+
+.multiplier-badge.active .badge-multiplier {
+  color: #ffd700;
+  text-shadow: 0 0 8px rgba(255, 215, 0, 0.6);
+}
+
+.multiplier-badge.active .badge-chance {
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Responsive badge sizes */
+@media (max-width: 768px) {
+  .multiplier-badge {
+    width: 80px;
+    height: 80px;
+  }
+  
+  .badge-multiplier {
+    font-size: 1.2em;
+  }
+  
+  .badge-chance {
+    font-size: 0.75em;
+  }
+}
+
+@media (max-width: 480px) {
+  .multiplier-badge {
+    width: 70px;
+    height: 70px;
+  }
+  
+  .badge-multiplier {
+    font-size: 1em;
+  }
+  
+  .badge-chance {
+    font-size: 0.7em;
+  }
+}
+
+/* Responsive: Stack on mobile */
+@media (max-width: 1024px) {
+  .game-main-row {
+    grid-template-columns: 1fr;
+    gap: 30px;
+  }
+}
+
 /* QR Code Section */
 .qr-section-main {
   text-align: center;
 }
 
 .qr-section-main h3 {
-  font-size: 24px;
   margin-bottom: 20px;
-  color: #ffd700;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 0.85em;
 }
 
 .qr-container-large {
   background: white;
-  padding: 20px;
-  border-radius: 15px;
+  padding: 12px;
+  border-radius: 12px;
   display: inline-block;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 /* Address Section */
@@ -116,17 +297,62 @@
 }
 
 .address-section-main h3 {
-  font-size: 24px;
   margin-bottom: 20px;
-  color: #ffd700;
+  color: rgba(255, 255, 255, 0.8);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-size: 0.85em;
 }
 
 .address-display-box {
-  background: rgba(255, 255, 255, 0.05);
-  border: 2px solid rgba(255, 215, 0, 0.3);
-  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
   padding: 25px;
   position: relative;
+}
+
+/* Server Seed Hash Display */
+.seed-hash-display-section {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.seed-hash-label {
+  font-size: 0.75em;
+  color: rgba(255, 255, 255, 0.6);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  margin-bottom: 8px;
+  text-align: left;
+}
+
+.seed-hash-value-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  justify-content: flex-start;
+}
+
+.seed-hash-value-text {
+  font-size: 0.85em;
+  font-family: 'Courier New', monospace;
+  color: #ffd700;
+  cursor: pointer;
+  transition: opacity 0.3s ease;
+  word-break: break-all;
+  flex: 1;
+}
+
+.seed-hash-value-text:hover {
+  opacity: 0.8;
+}
+
+.seed-hash-status {
+  font-size: 0.9em;
+  flex-shrink: 0;
 }
 
 .address-text {
@@ -140,26 +366,29 @@
 }
 
 .btn-copy-large {
-  background: linear-gradient(135deg, #ffd700, #ffed4e);
-  color: #1a1a2e;
-  border: none;
-  padding: 15px 40px;
-  border-radius: 10px;
-  font-size: 18px;
-  font-weight: 600;
+  background: #000000;
+  color: #ffd700;
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  padding: 12px 30px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.3s ease;
-  box-shadow: 0 4px 15px rgba(255, 215, 0, 0.3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .btn-copy-large:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(255, 215, 0, 0.4);
+  background: rgba(255, 215, 0, 0.1);
+  border-color: rgba(255, 215, 0, 0.6);
+  transform: translateY(-1px);
 }
 
 .btn-copy-large.copied {
-  background: linear-gradient(135deg, #4caf50, #66bb6a);
-  color: white;
+  background: rgba(76, 175, 80, 0.1);
+  border-color: rgba(76, 175, 80, 0.5);
+  color: #4caf50;
 }
 
 .copied-message {
@@ -293,6 +522,112 @@
   font-size: 12px;
   color: rgba(255, 255, 255, 0.5);
   font-family: 'Courier New', monospace;
+}
+
+/* Server Seed Hash Section */
+.seed-hash-section {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 16px;
+  padding: 24px;
+  margin: 30px 0;
+  border: 2px solid rgba(255, 215, 0, 0.3);
+}
+
+.seed-hash-section h3 {
+  color: #ffd700;
+  margin-bottom: 16px;
+  font-size: 1.3em;
+  text-align: center;
+}
+
+.seed-hash-display {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.seed-hash-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  justify-content: center;
+  width: 100%;
+}
+
+.seed-hash-label {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.95em;
+  font-weight: 500;
+}
+
+.seed-hash-value {
+  background: rgba(0, 0, 0, 0.3);
+  color: #ffd700;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9em;
+  border: 1px solid rgba(255, 215, 0, 0.3);
+  word-break: break-all;
+  max-width: 100%;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.seed-hash-value:hover {
+  background: rgba(0, 0, 0, 0.5);
+  border-color: rgba(255, 215, 0, 0.6);
+}
+
+.ws-status {
+  padding: 6px 12px;
+  border-radius: 12px;
+  font-size: 0.85em;
+  font-weight: bold;
+}
+
+.ws-status.connected {
+  background: rgba(40, 167, 69, 0.2);
+  color: #28a745;
+  border: 1px solid rgba(40, 167, 69, 0.5);
+}
+
+.ws-status.disconnected {
+  background: rgba(220, 53, 69, 0.2);
+  color: #dc3545;
+  border: 1px solid rgba(220, 53, 69, 0.5);
+}
+
+.btn-copy-seed {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: bold;
+  transition: all 0.3s ease;
+  font-size: 0.9em;
+}
+
+.btn-copy-seed:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-copy-seed.copied {
+  background: linear-gradient(135deg, #28a745, #20c997);
+}
+
+.seed-hash-note {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 0.85em;
+  text-align: center;
+  line-height: 1.5;
+  margin-top: 12px;
 }
 
 /* Important Info */

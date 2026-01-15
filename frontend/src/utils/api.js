@@ -91,4 +91,17 @@ export const getBetHistory = async (address, options = {}) => {
   return response.data;
 };
 
+// Seed Management
+export const getCurrentSeedHash = async (address = null) => {
+  const params = address ? { address } : {};
+  const response = await api.get('/api/seeds/current', { params });
+  return response.data;
+};
+
+// Fairness Page
+export const getFairnessSeeds = async () => {
+  const response = await api.get('/api/fairness/seeds');
+  return response.data;
+};
+
 export default api;

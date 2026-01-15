@@ -41,7 +41,8 @@ class BetResponse(BaseModel):
 
 class BetHistoryItem(BaseModel):
     """Single bet in history"""
-    bet_id: str
+    bet_id: str  # MongoDB _id (for internal use)
+    bet_number: Optional[int] = None  # Incremental bet number (1, 2, 3, ...) - None for old bets
     bet_amount: int
     target_multiplier: float
     multiplier: int
@@ -54,6 +55,11 @@ class BetHistoryItem(BaseModel):
     nonce: int
     target_address: str = None
     deposit_txid: str = None
+    payout_txid: Optional[str] = None  # Payout transaction ID (None if bet lost)
+    user_address: str = None  # User's Bitcoin address who placed the bet
+    server_seed: str = None  # Server seed for provably fair verification
+    server_seed_hash: str = None  # Server seed hash shown to user
+    client_seed: str = None  # Client seed
 
 
 class BetHistoryResponse(BaseModel):

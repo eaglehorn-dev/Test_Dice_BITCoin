@@ -28,7 +28,7 @@ async def ensure_collections_exist():
     """Ensure all required collections exist"""
     try:
         existing_collections = await db.list_collection_names()
-        required_collections = ["wallets", "bets", "payouts", "transactions", "users", "deposit_addresses"]
+        required_collections = ["wallets", "bets", "payouts", "transactions", "users", "deposit_addresses", "server_seeds"]
         
         for collection_name in required_collections:
             if collection_name not in existing_collections:
@@ -49,6 +49,11 @@ async def ensure_collections_exist():
         await bets.create_index("multiplier")
         await bets.create_index("deposit_txid", unique=True, sparse=True)
         await bets.create_index("created_at")
+        
+        # Create indexes for server_seeds collection (one seed per day)
+        server_seeds = db["server_seeds"]
+        await server_seeds.create_index("seed_date", unique=True)
+        await server_seeds.create_index("seed_date", -1)
         
         logger.success("[ADMIN] All collections and indexes initialized")
         
@@ -77,3 +82,7 @@ def get_bets_collection():
 def get_payouts_collection():
     """Get payouts collection"""
     return db["payouts"]
+
+def get_server_seeds_collection():
+    """Get server seeds collection"""
+    return db["server_seeds"]

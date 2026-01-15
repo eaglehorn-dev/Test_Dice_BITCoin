@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { verifyBet } from '../utils/api';
 import './FairnessVerifier.css';
 
 function FairnessVerifier() {
+  const navigate = useNavigate();
   const [betId, setBetId] = useState('');
   const [loading, setLoading] = useState(false);
   const [verification, setVerification] = useState(null);
@@ -30,6 +32,10 @@ function FairnessVerifier() {
 
   return (
     <div className="fairness-verifier slide-in">
+      <button className="btn-back" onClick={() => navigate('/')}>
+        <span className="back-arrow">←</span>
+        <span>Back to Home</span>
+      </button>
       <div className="verifier-card">
         <h2>✅ Verify Bet Fairness</h2>
         <p className="subtitle">

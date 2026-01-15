@@ -1,44 +1,35 @@
 .multiplier-slider {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: #000000;
   border-radius: 16px;
   padding: 24px;
   margin-bottom: 24px;
   color: white;
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.05);
 }
 
-.multiplier-slider h3 {
-  margin: 0 0 20px 0;
-  font-size: 1.4em;
-  text-align: center;
-  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+/* Win Chance Display (above slider) */
+.win-chance-display {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.selected-multiplier-display {
-  text-align: center;
-  margin-bottom: 24px;
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(10px);
-  border-radius: 12px;
-  padding: 20px;
-  border: 2px solid rgba(255, 255, 255, 0.2);
+.win-chance-label {
+  font-size: 0.85em;
+  color: rgba(255, 255, 255, 0.6);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-.multiplier-big {
-  font-size: 4em;
-  font-weight: bold;
-  line-height: 1;
-  text-shadow: 0 4px 8px rgba(0, 0, 0, 0.3);
-  background: linear-gradient(45deg, #ffd700, #ffed4e);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
-
-.multiplier-label {
-  font-size: 1.1em;
-  margin-top: 8px;
-  opacity: 0.9;
+.win-chance-value {
+  font-size: 0.85em;
+  color: #ffd700;
+  font-weight: 600;
+  font-family: 'Courier New', monospace;
 }
 
 .slider-container {
@@ -49,9 +40,9 @@
 
 .multiplier-range {
   width: 100%;
-  height: 8px;
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.2);
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
   outline: none;
   cursor: pointer;
   -webkit-appearance: none;
@@ -60,133 +51,64 @@
 .multiplier-range::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: linear-gradient(45deg, #ffd700, #ffed4e);
+  background: #ffd700;
   cursor: pointer;
-  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.5);
+  box-shadow: 0 2px 8px rgba(255, 215, 0, 0.4);
   transition: transform 0.2s;
+  border: 2px solid #000000;
 }
 
 .multiplier-range::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
+  transform: scale(1.15);
+  box-shadow: 0 3px 12px rgba(255, 215, 0, 0.6);
 }
 
 .multiplier-range::-moz-range-thumb {
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-  background: linear-gradient(45deg, #ffd700, #ffed4e);
+  background: #ffd700;
   cursor: pointer;
-  border: none;
-  box-shadow: 0 4px 12px rgba(255, 215, 0, 0.5);
+  border: 2px solid #000000;
+  box-shadow: 0 2px 8px rgba(255, 215, 0, 0.4);
 }
 
 .slider-markers {
   position: relative;
   height: 30px;
   margin-top: 12px;
+  padding: 0 8px;
 }
 
 .slider-marker {
   position: absolute;
   transform: translateX(-50%);
-  font-size: 0.9em;
-  opacity: 0.6;
+  font-size: 0.75em;
+  opacity: 0.4;
   transition: all 0.3s;
+  color: rgba(255, 255, 255, 0.5);
+  font-weight: 400;
 }
 
 .slider-marker.active {
   opacity: 1;
-  font-weight: bold;
-  transform: translateX(-50%) scale(1.2);
-  color: #ffd700;
-}
-
-.multiplier-buttons {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-  gap: 12px;
-  margin: 24px 0;
-}
-
-.multiplier-btn {
-  background: rgba(255, 255, 255, 0.1);
-  border: 2px solid rgba(255, 255, 255, 0.2);
-  border-radius: 12px;
-  padding: 16px 12px;
-  cursor: pointer;
-  transition: all 0.3s;
-  color: white;
-  font-family: inherit;
-}
-
-.multiplier-btn:hover {
-  background: rgba(255, 255, 255, 0.2);
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.multiplier-btn.active {
-  background: linear-gradient(45deg, #ffd700, #ffed4e);
-  border-color: #ffd700;
-  color: #333;
-  font-weight: bold;
-  transform: scale(1.05);
-  box-shadow: 0 6px 16px rgba(255, 215, 0, 0.4);
-}
-
-.btn-multiplier {
-  font-size: 1.8em;
-  font-weight: bold;
-  line-height: 1;
-}
-
-.btn-label {
-  font-size: 0.85em;
-  margin-top: 4px;
-  opacity: 0.9;
-}
-
-.multiplier-info {
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 12px;
-  padding: 16px;
-  margin-top: 20px;
-}
-
-.info-row {
-  display: flex;
-  justify-content: space-between;
-  padding: 8px 0;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-}
-
-.info-row:last-child {
-  border-bottom: none;
-}
-
-.info-label {
-  opacity: 0.8;
-}
-
-.info-value {
-  font-weight: bold;
+  font-weight: 500;
+  transform: translateX(-50%) scale(1.1);
   color: #ffd700;
 }
 
 /* Responsive */
 @media (max-width: 768px) {
-  .multiplier-big {
-    font-size: 3em;
-  }
-
-  .multiplier-buttons {
-    grid-template-columns: repeat(2, 1fr);
+  .win-chance-display {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
   }
 
   .slider-marker {
-    font-size: 0.75em;
+    font-size: 0.7em;
   }
 }

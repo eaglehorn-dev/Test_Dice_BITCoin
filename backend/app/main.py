@@ -23,7 +23,7 @@ from app.core.exceptions import (
 )
 from app.models.database import init_db, disconnect_db
 from app.services.transaction_monitor_service import TransactionMonitorService
-from app.api import websocket_router, bet_router, stats_router, admin_router, seed_router, wallet_router
+from app.api import websocket_router, bet_router, stats_router, admin_router, seed_router, wallet_router, bet_verify_router, fairness_router
 
 logger.remove()
 logger.add(
@@ -164,10 +164,12 @@ async def global_exception_handler(request: Request, exc: Exception):
 
 app.include_router(websocket_router)
 app.include_router(bet_router)
+app.include_router(bet_verify_router)  # Bet verification endpoint at /api/bet/verify
 app.include_router(stats_router)
 app.include_router(admin_router)
 app.include_router(seed_router)
 app.include_router(wallet_router)
+app.include_router(fairness_router)  # Fairness transparency endpoint at /api/fairness
 
 
 @app.get("/")

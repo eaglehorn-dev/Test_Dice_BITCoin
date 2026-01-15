@@ -8,19 +8,28 @@ from datetime import datetime
 class GenerateWalletRequest(BaseModel):
     """Request to generate a new wallet"""
     multiplier: int = Field(..., gt=0, description="Multiplier for this wallet (e.g., 2 for 2x)")
+    address_type: str = Field(default="segwit", description="Address type: 'legacy', 'segwit', or 'taproot'")
+    chance: float = Field(..., ge=0.01, le=99.99, description="Win chance percentage (0.01-99.99)")
 
 class GenerateWalletResponse(BaseModel):
     """Response from wallet generation"""
     wallet_id: str
     address: str
     multiplier: int
+    chance: float
+    address_type: str
+    address_format: str
     is_active: bool
 
 class WalletInfo(BaseModel):
     """Wallet information (without private key)"""
     wallet_id: str
     multiplier: int
+    chance: float
     address: str
+    address_type: Optional[str] = "legacy"
+    address_format: Optional[str] = "P2PKH"
+    label: Optional[str] = None
     is_active: bool
     is_depleted: bool
     total_received: int
@@ -30,6 +39,32 @@ class WalletInfo(BaseModel):
     balance_usd: Optional[float] = None
     last_used_at: Optional[datetime] = None
     created_at: datetime
+
+class UpdateWalletRequest(BaseModel):
+    """Request to update wallet"""
+    multiplier: Optional[int] = Field(None, gt=0, description="New multiplier value")
+    chance: Optional[float] = Field(None, ge=0.01, le=99.99, description="Win chance percentage (0.01-99.99)")
+    label: Optional[str] = Field(None, description="New label for wallet")
+    is_active: Optional[bool] = Field(None, description="Set wallet active/inactive")
+
+class UpdateWalletResponse(BaseModel):
+    """Response from wallet update"""
+    wallet_id: str
+    multiplier: int
+    chance: float
+    address: str
+    address_type: str
+    label: Optional[str]
+    is_active: bool
+    message: str
+
+class DeleteWalletResponse(BaseModel):
+    """Response from wallet deletion"""
+    success: bool
+    wallet_id: str
+    address: str
+    multiplier: int
+    message: str
 
 class WithdrawRequest(BaseModel):
     """Request to withdraw funds to cold storage"""
@@ -86,3 +121,23 @@ class DashboardResponse(BaseModel):
     wallets: List[WalletInfo]
     volume_by_multiplier: List[MultiplierVolumeResponse]
     is_testnet: bool = False
+
+# Server Seed Management DTOs
+class CreateServerSeedRequest(BaseModel):
+    """Request to create a new server seed"""
+    seed_date: str = Field(..., description="Date in ISO format (YYYY-MM-DD) - one seed per day")
+
+class ServerSeedInfo(BaseModel):
+    """Server seed information"""
+    seed_id: str
+    server_seed_hash: str
+    seed_date: str
+    created_at: datetime
+    bet_count: int = 0
+
+class CreateServerSeedResponse(BaseModel):
+    """Response from server seed creation"""
+    seed_id: str
+    server_seed_hash: str
+    seed_date: str
+    message: str

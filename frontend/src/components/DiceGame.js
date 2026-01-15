@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 import MultiplierSlider from './MultiplierSlider';
-import { getAllWallets } from '../utils/api';
+import { getAllWallets, getCurrentSeedHash } from '../utils/api';
 import './DiceGame.css';
 
 function DiceGame() {
@@ -11,10 +11,123 @@ function DiceGame() {
   const [wallets, setWallets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [serverSeedHash, setServerSeedHash] = useState(null);
+  const [seedHashCopied, setSeedHashCopied] = useState(false);
+  const [wsConnected, setWsConnected] = useState(false);
+  const wsRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
 
   useEffect(() => {
     loadWallets();
+    loadSeedHash();
+    setupWebSocket();
+    
+    return () => {
+      // Cleanup WebSocket on unmount
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
   }, []);
+  
+  const loadSeedHash = async () => {
+    try {
+      const seedData = await getCurrentSeedHash();
+      if (seedData && seedData.server_seed_hash) {
+        setServerSeedHash(seedData.server_seed_hash);
+      }
+    } catch (err) {
+      console.error('Failed to load seed hash:', err);
+    }
+  };
+  
+  const setupWebSocket = () => {
+    // Clear any existing reconnect timeout
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    // Don't reconnect if already connecting or connected
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.CONNECTING || wsRef.current.readyState === WebSocket.OPEN)) {
+      return;
+    }
+
+    try {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsHost = process.env.REACT_APP_API_URL 
+        ? process.env.REACT_APP_API_URL.replace('http://', '').replace('https://', '')
+        : window.location.host.replace(':3000', ':8000');
+      
+      const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/bets`);
+      wsRef.current = ws;
+      
+      ws.onopen = () => {
+        console.log('WebSocket connected for seed hash updates');
+        setWsConnected(true);
+        // Clear any pending reconnect
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          // Handle seed hash updates
+          if (data.type === 'seed_hash_update' && data.server_seed_hash) {
+            setServerSeedHash(data.server_seed_hash);
+            console.log('Server seed hash updated:', data.server_seed_hash);
+          }
+          
+          // Handle new bet (which might include seed hash)
+          if (data.type === 'new_bet' && data.bet && data.bet.server_seed_hash) {
+            setServerSeedHash(prevHash => {
+              if (data.bet.server_seed_hash !== prevHash) {
+                return data.bet.server_seed_hash;
+              }
+              return prevHash;
+            });
+          }
+        } catch (error) {
+          console.error('WebSocket message error:', error);
+        }
+      };
+      
+      ws.onerror = (error) => {
+        console.warn('WebSocket error:', error);
+        setWsConnected(false);
+      };
+      
+      ws.onclose = (event) => {
+        console.log('WebSocket disconnected, will reconnect...', event.code, event.reason);
+        setWsConnected(false);
+        wsRef.current = null;
+        
+        // Only reconnect if it wasn't a manual close (code 1000)
+        if (event.code !== 1000) {
+          // Exponential backoff: 1s, 2s, 4s, max 10s
+          const delay = Math.min(10000, 1000 * Math.pow(2, 0));
+          reconnectTimeoutRef.current = setTimeout(() => {
+            setupWebSocket();
+          }, delay);
+        }
+      };
+    } catch (error) {
+      console.warn('WebSocket connection failed:', error);
+      setWsConnected(false);
+      // Retry connection after delay
+      reconnectTimeoutRef.current = setTimeout(() => {
+        setupWebSocket();
+      }, 3000);
+    }
+  };
 
   const loadWallets = async () => {
     try {
@@ -88,6 +201,20 @@ function DiceGame() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+  
+  const copySeedHash = () => {
+    if (serverSeedHash) {
+      copyToClipboard(serverSeedHash);
+      setSeedHashCopied(true);
+      setTimeout(() => setSeedHashCopied(false), 2000);
+    }
+  };
+  
+  const truncateHash = (hash) => {
+    if (!hash) return 'N/A';
+    if (hash.length <= 16) return hash;
+    return `${hash.slice(0, 8)}...${hash.slice(-8)}`;
+  };
 
   if (loading) {
     return (
@@ -125,125 +252,99 @@ function DiceGame() {
         </div>
 
         <div className="satoshi-container">
-          {/* Multiplier Slider */}
+          {/* Main Row: QR and Address */}
+          <div className="game-main-row">
+            {/* QR Code Section */}
+            <div className="qr-section-main">
+              <h3>📲 Scan to Play</h3>
+              {selectedWallet && (
+                <div className="selected-wallet-info">
+                  <span className="wallet-badge">{selectedWallet.multiplier}x Multiplier</span>
+                  <span className="network-badge">{selectedWallet.network}</span>
+                </div>
+              )}
+              <div className="qr-container-large">
+                <QRCodeSVG 
+                  value={`bitcoin:${walletAddress}`}
+                  size={200}
+                  level="H"
+                  includeMargin={true}
+                  bgColor="#ffffff"
+                  fgColor="#000000"
+                />
+              </div>
+            </div>
+
+            {/* Address Section */}
+            <div className="address-section-main">
+              <h3>💰 Send Bitcoin</h3>
+              <div className="address-display-box">
+                <code className="address-text">{walletAddress}</code>
+                <button 
+                  className={`btn-copy-large ${copied ? 'copied' : ''}`}
+                  onClick={() => copyToClipboard(walletAddress)}
+                >
+                  {copied ? '✅ Copied!' : '📋 Copy Address'}
+                </button>
+                {copied && <div className="copied-message">Address copied to clipboard!</div>}
+                
+                {/* Server Seed Hash Display */}
+                {serverSeedHash && (
+                  <div className="seed-hash-display-section">
+                    <div className="seed-hash-label">Server Seed Hash:</div>
+                    <div className="seed-hash-value-container">
+                      <code 
+                        className="seed-hash-value-text" 
+                        onClick={() => {
+                          copyToClipboard(serverSeedHash);
+                          setSeedHashCopied(true);
+                          setTimeout(() => setSeedHashCopied(false), 2000);
+                        }}
+                        title="Click to copy full hash"
+                      >
+                        {serverSeedHash.slice(0, 16)}...{serverSeedHash.slice(-8)}
+                      </code>
+                      <span className={`seed-hash-status ${wsConnected ? 'connected' : 'disconnected'}`} title={wsConnected ? 'WebSocket connected' : 'WebSocket disconnected'}>
+                        {wsConnected ? '🟢' : '🔴'}
+                      </span>
+                    </div>
+                    {seedHashCopied && <div className="copied-message">Seed hash copied!</div>}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Multiplier Slider (below the row) */}
           {wallets.length > 0 && (
-            <MultiplierSlider 
-              wallets={wallets} 
-              onMultiplierChange={handleMultiplierChange}
-            />
-          )}
-
-          {/* QR Code Section */}
-          <div className="qr-section-main">
-            <h3>📲 Scan to Play</h3>
-            {selectedWallet && (
-              <div className="selected-wallet-info">
-                <span className="wallet-badge">{selectedWallet.multiplier}x Multiplier</span>
-                <span className="network-badge">{selectedWallet.network}</span>
-              </div>
-            )}
-            <div className="qr-container-large">
-              <QRCodeSVG 
-                value={`bitcoin:${walletAddress}`}
-                size={280}
-                level="H"
-                includeMargin={true}
-                bgColor="#ffffff"
-                fgColor="#000000"
+            <div className="slider-section">
+              <MultiplierSlider 
+                wallets={wallets} 
+                onMultiplierChange={handleMultiplierChange}
+                selectedWallet={selectedWallet}
               />
-            </div>
-          </div>
-
-          {/* Address Section */}
-          <div className="address-section-main">
-            <h3>💰 Send Bitcoin to {selectedWallet?.multiplier}x Address</h3>
-            <div className="address-display-box">
-              <code className="address-text">{walletAddress}</code>
-              <button 
-                className={`btn-copy-large ${copied ? 'copied' : ''}`}
-                onClick={() => copyToClipboard(walletAddress)}
-              >
-                {copied ? '✅ Copied!' : '📋 Copy Address'}
-              </button>
-              {copied && <div className="copied-message">Address copied to clipboard!</div>}
-            </div>
-          </div>
-
-          {/* How It Works */}
-          <div className="how-it-works">
-            <h3>⚡ How It Works</h3>
-            <div className="steps">
-              <div className="step">
-                <div className="step-number">1</div>
-                <div className="step-content">
-                  <strong>Choose Multiplier</strong>
-                  <p>Use the slider to select your desired multiplier (2x to 100x)</p>
-                </div>
-              </div>
-              <div className="step">
-                <div className="step-number">2</div>
-                <div className="step-content">
-                  <strong>Send Bitcoin</strong>
-                  <p>Send any amount (min 600 sats) to the displayed address</p>
-                </div>
-              </div>
-              <div className="step">
-                <div className="step-number">3</div>
-                <div className="step-content">
-                  <strong>Auto-Roll</strong>
-                  <p>Dice rolls automatically using provably fair algorithm</p>
-                </div>
-              </div>
-              <div className="step">
-                <div className="step-number">4</div>
-                <div className="step-content">
-                  <strong>Instant Payout</strong>
-                  <p>If you win, get {selectedWallet?.multiplier}x payout to your address!</p>
+              
+              {/* Multiplier Badges - Landscape: one row below slider, Portrait: separate section */}
+              <div className="multiplier-badges-container">
+                <div className="multiplier-badges-grid">
+                  {wallets
+                    .sort((a, b) => a.multiplier - b.multiplier)
+                    .map((wallet) => (
+                      <button
+                        key={wallet.multiplier}
+                        className={`multiplier-badge ${selectedWallet && selectedWallet.multiplier === wallet.multiplier ? 'active' : ''}`}
+                        onClick={() => handleMultiplierChange(wallet)}
+                      >
+                        <div className="badge-multiplier">{wallet.multiplier}x</div>
+                        <div className="badge-chance">
+                          {wallet.chance ? wallet.chance.toFixed(2) : 'N/A'}%
+                        </div>
+                      </button>
+                    ))}
                 </div>
               </div>
             </div>
-          </div>
-
-          {/* Important Info */}
-          <div className="important-info">
-            <div className="info-box">
-              <div className="info-icon">💡</div>
-              <div className="info-content">
-                <strong>Fully Automatic</strong>
-                <p>No buttons, no forms. Just send Bitcoin and win!</p>
-              </div>
-            </div>
-            <div className="info-box">
-              <div className="info-icon">🔒</div>
-              <div className="info-content">
-                <strong>Provably Fair</strong>
-                <p>Every roll is verifiable using HMAC-SHA512</p>
-              </div>
-            </div>
-            <div className="info-box">
-              <div className="info-icon">⚡</div>
-              <div className="info-content">
-                <strong>Instant Results</strong>
-                <p>Winnings sent to your address within seconds</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Bet Limits */}
-          <div className="bet-limits">
-            <div className="limit-item">
-              <span className="limit-label">Min Bet:</span>
-              <span className="limit-value">600 sats (~$0.30)</span>
-            </div>
-            <div className="limit-item">
-              <span className="limit-label">Max Bet:</span>
-              <span className="limit-value">1,000,000 sats (~$500)</span>
-            </div>
-            <div className="limit-item">
-              <span className="limit-label">House Edge:</span>
-              <span className="limit-value">2%</span>
-            </div>
-          </div>
+          )}
         </div>
       </div>
     </div>

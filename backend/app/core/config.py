@@ -98,7 +98,7 @@ class Settings(BaseSettings):
     MAX_BETS_PER_USER_PER_HOUR: int = 100
     
     ENABLE_LOGGING: bool = True
-    LOG_LEVEL: str = "INFO"
+    LOG_LEVEL: str = "DEBUG"  # Changed to DEBUG for troubleshooting
     LOG_FILE: str = "dice_game.log"
     
     HOST: str = "0.0.0.0"

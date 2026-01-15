@@ -15,6 +15,7 @@ router = APIRouter(prefix="/api/wallets", tags=["wallets"])
 class WalletAddressResponse(BaseModel):
     """Public wallet information for frontend"""
     multiplier: int
+    chance: float
     address: str
     label: str
     is_active: bool
@@ -73,8 +74,16 @@ async def get_wallet_address(multiplier: int):
                 detail=f"No active wallet found for {multiplier}x multiplier"
             )
         
+        # Get chance from wallet (with fallback for old wallets)
+        chance = wallet.get("chance")
+        if chance is None:
+            # Calculate default chance for backward compatibility
+            from app.services.provably_fair_service import ProvablyFairService
+            chance = ProvablyFairService.calculate_win_chance(multiplier)
+        
         return WalletAddressResponse(
             multiplier=wallet["multiplier"],
+            chance=chance,
             address=wallet["address"],
             label=wallet.get("label", f"{multiplier}x Wallet"),
             is_active=wallet["is_active"],
@@ -104,9 +113,12 @@ async def get_all_wallets():
         wallet_service = WalletService()
         wallets = await wallet_service.get_active_wallets()
         
+        from app.services.provably_fair_service import ProvablyFairService
+        
         return [
             WalletAddressResponse(
                 multiplier=w["multiplier"],
+                chance=w.get("chance") or ProvablyFairService.calculate_win_chance(w["multiplier"]),
                 address=w["address"],
                 label=w.get("label", f"{w['multiplier']}x Wallet"),
                 is_active=w["is_active"],

@@ -8,7 +8,6 @@ function BetHistory({ userAddress }) {
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedMultiplier, setSelectedMultiplier] = useState('');
-  const [totalStats, setTotalStats] = useState({});
 
   useEffect(() => {
     loadBets();
@@ -26,12 +25,6 @@ function BetHistory({ userAddress }) {
       
       const response = await getBetHistory(userAddress, options);
       setBets(response.bets || []);
-      setTotalStats({
-        total_bets: response.total_bets || 0,
-        total_wagered: response.total_wagered || 0,
-        total_won: response.total_won || 0,
-        total_lost: response.total_lost || 0
-      });
     } catch (err) {
       setError(err.message || 'Failed to load bet history');
     } finally {
@@ -87,28 +80,6 @@ function BetHistory({ userAddress }) {
     <div className="bet-history slide-in">
       <div className="history-header">
         <h2>📜 Your Bet History</h2>
-        
-        {/* Stats Display */}
-        {totalStats.total_bets > 0 && (
-          <div className="stats-summary">
-            <div className="stat-item">
-              <span className="stat-label">Total Bets:</span>
-              <span className="stat-value">{totalStats.total_bets}</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-label">Wagered:</span>
-              <span className="stat-value">{formatSats(totalStats.total_wagered)} sats</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-label">Won:</span>
-              <span className="stat-value win">{totalStats.total_won}</span>
-            </div>
-            <div className="stat-item">
-              <span className="stat-label">Lost:</span>
-              <span className="stat-value lose">{totalStats.total_lost}</span>
-            </div>
-          </div>
-        )}
       </div>
 
       {/* Search and Filter Controls */}

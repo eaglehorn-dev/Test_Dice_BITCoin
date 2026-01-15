@@ -2,6 +2,21 @@
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  background: #000000;
+}
+
+/* Page Container for non-landing pages */
+.page-container {
+  min-height: 100vh;
+  padding: 10px;
+  max-width: 1400px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* Ensure landing section takes full viewport */
+.App > section {
+  min-height: 100vh;
 }
 
 .container {

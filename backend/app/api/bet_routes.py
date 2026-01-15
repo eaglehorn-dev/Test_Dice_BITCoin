@@ -62,18 +62,30 @@ async def get_bet_history(
         
         bets = await bets_col.find(query).sort("created_at", -1).limit(limit).to_list(length=limit)
         
+        # User address is the same for all bets in this query
+        user_address = user.get("address") if user else None
+        
         bet_items = [
             BetHistoryItem(
                 bet_id=str(bet["_id"]),
+                bet_number=bet.get("bet_number"),  # Incremental bet number (None for old bets)
                 bet_amount=bet["bet_amount"],
                 target_multiplier=bet["target_multiplier"],
+                multiplier=bet.get("multiplier", int(bet["target_multiplier"])),  # Use multiplier or fallback to target_multiplier
                 win_chance=bet["win_chance"],
                 roll_result=bet["roll_result"],
                 is_win=bet["is_win"],
                 payout_amount=bet["payout_amount"],
                 profit=bet["profit"],
                 created_at=bet["created_at"],
-                nonce=bet["nonce"]
+                nonce=bet["nonce"],
+                user_address=user_address,
+                target_address=bet.get("target_address"),
+                deposit_txid=bet.get("deposit_txid"),
+                payout_txid=bet.get("payout_txid"),  # Include payout_txid (None for losses)
+                server_seed=bet.get("server_seed"),  # Server seed for verification
+                server_seed_hash=bet.get("server_seed_hash"),  # Server seed hash
+                client_seed=bet.get("client_seed")  # Client seed
             )
             for bet in bets
         ]
@@ -109,22 +121,42 @@ async def get_recent_bets(
             {"roll_result": {"$ne": None}}
         ).sort("created_at", -1).limit(limit).to_list(length=limit)
         
-        # Format response
-        bet_items = [
-            BetHistoryItem(
-                bet_id=str(bet["_id"]),
-                bet_amount=bet["bet_amount"],
-                target_multiplier=bet["target_multiplier"],
-                win_chance=bet["win_chance"],
-                roll_result=bet["roll_result"],
-                is_win=bet["is_win"],
-                payout_amount=bet["payout_amount"],
-                profit=bet["profit"],
-                created_at=bet["created_at"],
-                nonce=bet["nonce"]
+        # Get users collection for address lookup
+        users_col = get_users_collection()
+        
+        # Format response with user addresses
+        bet_items = []
+        for bet in bets:
+            # Look up user address
+            user_address = None
+            if "user_id" in bet:
+                user = await users_col.find_one({"_id": bet["user_id"]})
+                if user:
+                    user_address = user.get("address")
+            
+            bet_items.append(
+                BetHistoryItem(
+                    bet_id=str(bet["_id"]),
+                    bet_number=bet.get("bet_number"),  # Incremental bet number (None for old bets)
+                    bet_amount=bet["bet_amount"],
+                    target_multiplier=bet["target_multiplier"],
+                    multiplier=bet.get("multiplier", int(bet["target_multiplier"])),  # Use multiplier or fallback to target_multiplier
+                    win_chance=bet["win_chance"],
+                    roll_result=bet["roll_result"],
+                    is_win=bet["is_win"],
+                    payout_amount=bet["payout_amount"],
+                    profit=bet["profit"],
+                    created_at=bet["created_at"],
+                    nonce=bet["nonce"],
+                    user_address=user_address,
+                    target_address=bet.get("target_address"),
+                    deposit_txid=bet.get("deposit_txid"),
+                    payout_txid=bet.get("payout_txid"),  # Include payout_txid (None for losses)
+                    server_seed=bet.get("server_seed"),  # Server seed for verification
+                    server_seed_hash=bet.get("server_seed_hash"),  # Server seed hash
+                    client_seed=bet.get("client_seed")  # Client seed
+                )
             )
-            for bet in bets
-        ]
         
         return RecentBetsResponse(
             bets=bet_items,

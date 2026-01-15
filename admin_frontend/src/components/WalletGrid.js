@@ -1,30 +1,13 @@
 import React, { useState } from 'react';
-import { generateWallet, withdrawToColStorage } from '../services/api';
+import { withdrawToColStorage, deleteWallet } from '../services/api';
 import { formatSats, formatUSD, formatDateShort } from '../utils/format';
+import WalletModal from './WalletModal';
 
 function WalletGrid({ wallets, onUpdate }) {
-  const [generating, setGenerating] = useState(false);
+  const [showModal, setShowModal] = useState(false);
+  const [editingWallet, setEditingWallet] = useState(null);
   const [withdrawing, setWithdrawing] = useState(null);
-  const [newMultiplier, setNewMultiplier] = useState('');
-
-  const handleGenerateWallet = async () => {
-    if (!newMultiplier || parseInt(newMultiplier) < 1) {
-      alert('Please enter a valid multiplier (e.g., 2, 3, 5, 10, 100)');
-      return;
-    }
-
-    try {
-      setGenerating(true);
-      await generateWallet(parseInt(newMultiplier));
-      setNewMultiplier('');
-      alert(`✅ Successfully generated ${newMultiplier}x wallet!`);
-      onUpdate();
-    } catch (error) {
-      alert(`❌ Failed to generate wallet: ${error.response?.data?.detail || error.message}`);
-    } finally {
-      setGenerating(false);
-    }
-  };
+  const [deleting, setDeleting] = useState(null);
 
   const handleWithdraw = async (wallet) => {
     if (!window.confirm(`Withdraw entire balance from ${wallet.multiplier}x wallet (${wallet.address})?\n\nThis will send funds to cold storage.`)) {
@@ -43,30 +26,50 @@ function WalletGrid({ wallets, onUpdate }) {
     }
   };
 
+  const handleEditWallet = (wallet) => {
+    setEditingWallet(wallet);
+    setShowModal(true);
+  };
+
+  const handleDeleteWallet = async (wallet) => {
+    const confirmMsg = `⚠️ WARNING: This will permanently delete the wallet!\n\nMultiplier: ${wallet.multiplier}x\nAddress: ${wallet.address}\n\nThis cannot be undone! Continue?`;
+    
+    if (!window.confirm(confirmMsg)) {
+      return;
+    }
+
+    try {
+      setDeleting(wallet.wallet_id);
+      await deleteWallet(wallet.wallet_id);
+      alert(`✅ Wallet deleted successfully!`);
+      onUpdate();
+    } catch (error) {
+      alert(`❌ Failed to delete wallet: ${error.response?.data?.detail || error.message}`);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const handleModalClose = (success) => {
+    setShowModal(false);
+    setEditingWallet(null);
+    if (success) {
+      onUpdate();
+    }
+  };
+
   return (
     <div className="bg-white rounded-lg shadow-lg p-6 mb-8">
       <div className="flex justify-between items-center mb-6">
         <h2 className="text-2xl font-bold text-gray-900">🔑 Wallet Vault</h2>
         
-        {/* Generate Wallet Form */}
-        <div className="flex gap-2">
-          <input
-            type="number"
-            min="1"
-            placeholder="Multiplier (e.g., 10)"
-            value={newMultiplier}
-            onChange={(e) => setNewMultiplier(e.target.value)}
-            className="border-2 border-gray-300 rounded px-3 py-2 w-40"
-            disabled={generating}
-          />
-          <button
-            onClick={handleGenerateWallet}
-            disabled={generating}
-            className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700 disabled:bg-gray-400 flex items-center gap-2"
-          >
-            {generating ? '⏳ Generating...' : '➕ Generate Wallet'}
-          </button>
-        </div>
+        {/* Generate Wallet Button */}
+        <button
+          onClick={() => setShowModal(true)}
+          className="bg-green-600 text-white px-6 py-2 rounded-lg hover:bg-green-700 flex items-center gap-2 font-medium"
+        >
+          ➕ Create New Wallet
+        </button>
       </div>
 
       {/* Wallets Table */}
@@ -75,7 +78,9 @@ function WalletGrid({ wallets, onUpdate }) {
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Multiplier</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Chance</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Address</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Type</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Balance</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stats</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
@@ -90,9 +95,18 @@ function WalletGrid({ wallets, onUpdate }) {
                     {wallet.multiplier}x
                   </span>
                 </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="text-sm font-medium text-gray-900">{wallet.chance?.toFixed(2) || 'N/A'}%</div>
+                  <div className="text-xs text-gray-500">Win chance</div>
+                </td>
                 <td className="px-6 py-4">
-                  <div className="text-sm font-mono text-gray-900">{wallet.address.substring(0, 20)}...</div>
-                  <div className="text-xs text-gray-500">Created: {formatDateShort(wallet.created_at)}</div>
+                  <div className="text-sm font-mono text-gray-900">{wallet.address.substring(0, 25)}...</div>
+                  <div className="text-xs text-gray-500">{wallet.label || 'No label'}</div>
+                  <div className="text-xs text-gray-400">Created: {formatDateShort(wallet.created_at)}</div>
+                </td>
+                <td className="px-6 py-4 whitespace-nowrap">
+                  <div className="text-sm font-medium text-gray-900">{wallet.address_type || 'legacy'}</div>
+                  <div className="text-xs text-gray-500">{wallet.address_format || 'P2PKH'}</div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div className="text-sm font-semibold text-gray-900">{formatSats(wallet.balance_sats || 0)} sats</div>
@@ -121,13 +135,28 @@ function WalletGrid({ wallets, onUpdate }) {
                   )}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm">
-                  <button
-                    onClick={() => handleWithdraw(wallet)}
-                    disabled={withdrawing === wallet.wallet_id || (wallet.balance_sats || 0) < 1000}
-                    className="bg-orange-600 text-white px-3 py-1 rounded hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                  >
-                    {withdrawing === wallet.wallet_id ? '⏳ Withdrawing...' : '💸 Withdraw'}
-                  </button>
+                  <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => handleEditWallet(wallet)}
+                      className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700 text-xs"
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      onClick={() => handleWithdraw(wallet)}
+                      disabled={withdrawing === wallet.wallet_id || (wallet.balance_sats || 0) < 1000}
+                      className="bg-orange-600 text-white px-3 py-1 rounded hover:bg-orange-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-xs"
+                    >
+                      {withdrawing === wallet.wallet_id ? '⏳' : '💸 Withdraw'}
+                    </button>
+                    <button
+                      onClick={() => handleDeleteWallet(wallet)}
+                      disabled={deleting === wallet.wallet_id}
+                      className="bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-xs"
+                    >
+                      {deleting === wallet.wallet_id ? '⏳' : '🗑️ Delete'}
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -138,8 +167,16 @@ function WalletGrid({ wallets, onUpdate }) {
       {wallets.length === 0 && (
         <div className="text-center py-12 text-gray-500">
           <p className="text-lg">No wallets yet</p>
-          <p className="text-sm">Generate your first wallet using the form above</p>
+          <p className="text-sm">Create your first wallet using the button above</p>
         </div>
+      )}
+
+      {/* Wallet Modal */}
+      {showModal && (
+        <WalletModal
+          wallet={editingWallet}
+          onClose={handleModalClose}
+        />
       )}
     </div>
   );

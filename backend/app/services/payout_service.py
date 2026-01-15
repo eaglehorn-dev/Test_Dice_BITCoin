@@ -62,6 +62,7 @@ class PayoutService:
                 return None
             
             # Create payout record
+            # Note: Don't include txid field when None - sparse index works better without it
             payout_doc = {
                 "bet_id": bet_dict["_id"],
                 "amount": bet_dict["payout_amount"],
@@ -71,22 +72,34 @@ class PayoutService:
                 "network_fee": None,
                 "retry_count": 0,
                 "max_retries": 3,
-                "txid": None,
+                # txid will be added later when transaction is broadcast
                 "created_at": datetime.utcnow(),
                 "broadcast_at": None,
                 "confirmed_at": None
             }
             
-            payout_id = await self.payout_repo.insert_one(payout_doc)
-            payout_doc["_id"] = payout_id
-            
-            logger.info(f"[OK] Created payout {payout_doc['_id']} for bet {bet_dict['_id']}: {payout_doc['amount']} sats to {recipient_address}")
-            
-            # Attempt to broadcast payout in background
-            import asyncio
-            asyncio.create_task(self._async_broadcast_and_update(payout_id, bet_dict["_id"]))
-            
-            return payout_doc
+            try:
+                payout_id = await self.payout_repo.insert_one(payout_doc)
+                payout_doc["_id"] = payout_id
+                
+                logger.info(f"[OK] Created payout {payout_doc['_id']} for bet {bet_dict['_id']}: {payout_doc['amount']} sats to {recipient_address}")
+                
+                # Attempt to broadcast payout in background
+                import asyncio
+                asyncio.create_task(self._async_broadcast_and_update(payout_id, bet_dict["_id"]))
+                
+                return payout_doc
+            except Exception as insert_error:
+                # Handle duplicate key error (race condition)
+                error_str = str(insert_error)
+                if "E11000" in error_str or "duplicate key" in error_str.lower():
+                    logger.warning(f"Payout already exists for bet {bet_dict['_id']} (race condition), fetching existing...")
+                    # Fetch the existing payout
+                    existing_payout = await self.payout_repo.get_by_bet_id(bet_dict["_id"])
+                    if existing_payout:
+                        return existing_payout
+                # Re-raise if it's a different error
+                raise
             
         except Exception as e:
             logger.error(f"Error processing winning bet {bet_dict['_id']}: {e}")
@@ -356,6 +369,7 @@ class PayoutService:
                     inputs.append(Input(
                         prev_txid=utxo['txid'],
                         output_n=utxo['vout'],
+                        value=utxo['value'],  # Required for SegWit signing
                         keys=key,
                         witness_type=witness_type,
                         network=network
@@ -365,6 +379,7 @@ class PayoutService:
                 inputs.append(Input(
                     prev_txid=selected_utxo['txid'],
                     output_n=selected_utxo['vout'],
+                    value=selected_utxo['value'],  # Required for SegWit signing
                     keys=key,
                     witness_type=witness_type,
                     network=network

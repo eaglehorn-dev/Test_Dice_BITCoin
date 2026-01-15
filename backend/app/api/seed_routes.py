@@ -1,14 +1,63 @@
 """
 Provably fair seed management routes
 """
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 from bson import ObjectId
 from loguru import logger
 
-from app.models.database import get_seeds_collection
+from app.models.database import get_seeds_collection, get_users_collection
 from app.services.provably_fair_service import ProvablyFairService
+from app.services.server_seed_service import ServerSeedService
 
 router = APIRouter(prefix="/api/seeds", tags=["provably-fair"])
+
+
+@router.get("/current")
+async def get_current_seed_hash(
+    address: str = Query(None, description="User Bitcoin address (optional)")
+):
+    """
+    Get current active server seed hash for provably fair verification
+    
+    Returns the fixed server seed hash that's used for all bets.
+    
+    Args:
+        address: Optional Bitcoin address (for backward compatibility)
+        
+    Returns:
+        Current server seed hash and related info
+    """
+    try:
+        server_seed_service = ServerSeedService()
+        # Get today's server seed (automatically generates and stores if doesn't exist)
+        server_seed = await server_seed_service.get_today_server_seed()
+        
+        if not server_seed:
+            raise HTTPException(status_code=500, detail="Failed to get or create today's server seed")
+        
+        # Get user's nonce if address provided
+        user_nonce = 0
+        if address:
+            users_col = get_users_collection()
+            user = await users_col.find_one({"address": address})
+            if user:
+                seeds_col = get_seeds_collection()
+                user_seed = await seeds_col.find_one({"user_id": user["_id"], "is_active": True})
+                if user_seed:
+                    user_nonce = user_seed.get("nonce", 0)
+        
+        return {
+            "server_seed_hash": server_seed["server_seed_hash"],
+            "client_seed": address or "",  # Client seed is user address
+            "nonce": user_nonce,
+            "is_active": True,
+            "user_address": address,
+            "seed_date": server_seed.get("seed_date")
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting current seed hash: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/verify/{seed_id}")

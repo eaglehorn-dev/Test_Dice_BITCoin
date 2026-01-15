@@ -1,0 +1,218 @@
+.fairness-page {
+  min-height: 100vh;
+  background: #000000;
+  color: #ffffff;
+  padding: 20px;
+}
+
+.fairness-container {
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.btn-back {
+  background: transparent;
+  border: 1px solid #FFD700;
+  color: #FFD700;
+  padding: 10px 20px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-bottom: 30px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: all 0.3s ease;
+}
+
+.btn-back:hover {
+  background: rgba(255, 215, 0, 0.1);
+  border-color: #FFD700;
+}
+
+.back-arrow {
+  font-size: 18px;
+}
+
+.fairness-header {
+  text-align: center;
+  margin-bottom: 40px;
+}
+
+.fairness-title {
+  font-size: 2.5rem;
+  font-weight: bold;
+  color: #ffffff;
+  margin-bottom: 10px;
+}
+
+.fairness-subtitle {
+  font-size: 1rem;
+  color: #cccccc;
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.error-message {
+  background: rgba(255, 0, 0, 0.1);
+  border: 1px solid #ff0000;
+  color: #ff0000;
+  padding: 15px;
+  border-radius: 8px;
+  margin-bottom: 30px;
+  text-align: center;
+}
+
+.seeds-table-container {
+  background: #000000;
+  border: 1px solid rgba(255, 215, 0, 0.2);
+  border-radius: 8px;
+  overflow: hidden;
+  margin-bottom: 30px;
+}
+
+.seeds-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.seeds-table thead {
+  background: rgba(255, 215, 0, 0.1);
+}
+
+.seeds-table th {
+  padding: 15px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #FFD700;
+  border-bottom: 1px solid rgba(255, 215, 0, 0.2);
+}
+
+.seeds-table td {
+  padding: 15px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.seed-row:hover {
+  background: rgba(255, 215, 0, 0.05);
+}
+
+.seed-date {
+  min-width: 150px;
+}
+
+.date-value {
+  font-weight: 500;
+  margin-bottom: 5px;
+}
+
+.date-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.badge-past {
+  background: rgba(100, 100, 100, 0.3);
+  color: #cccccc;
+}
+
+.badge-future {
+  background: rgba(255, 215, 0, 0.2);
+  color: #FFD700;
+}
+
+.seed-hash {
+  min-width: 250px;
+}
+
+.hash-value {
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+  color: #ffffff;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.hash-value:hover {
+  background: rgba(255, 215, 0, 0.1);
+}
+
+.hash-hint {
+  font-size: 0.75rem;
+  color: #888888;
+  margin-top: 3px;
+}
+
+.seed-key {
+  min-width: 250px;
+}
+
+.key-value {
+  font-family: 'Courier New', monospace;
+  font-size: 0.875rem;
+  color: #FFD700;
+  cursor: pointer;
+  padding: 5px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.key-value:hover {
+  background: rgba(255, 215, 0, 0.1);
+}
+
+.key-unpublished {
+  color: #888888;
+  font-style: italic;
+  font-size: 0.875rem;
+}
+
+.seed-bets {
+  text-align: center;
+  font-weight: 500;
+  color: #ffffff;
+}
+
+.fairness-info {
+  background: rgba(255, 215, 0, 0.05);
+  border: 1px solid rgba(255, 215, 0, 0.2);
+  border-radius: 8px;
+  padding: 20px;
+  margin-top: 30px;
+}
+
+.info-text {
+  color: #cccccc;
+  line-height: 1.6;
+  margin: 0;
+}
+
+.info-text strong {
+  color: #FFD700;
+}
+
+.text-center {
+  text-align: center;
+}
+
+@media (max-width: 768px) {
+  .seeds-table-container {
+    overflow-x: auto;
+  }
+  
+  .seeds-table {
+    min-width: 800px;
+  }
+  
+  .fairness-title {
+    font-size: 1.8rem;
+  }
+}

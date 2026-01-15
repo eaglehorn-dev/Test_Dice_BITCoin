@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { getRecentBets } from '../utils/api';
 import './AllBetsHistory.css';
 
 function AllBetsHistory() {
+  const navigate = useNavigate();
   const [bets, setBets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
@@ -10,63 +12,117 @@ function AllBetsHistory() {
   const [totalBets, setTotalBets] = useState(0);
   const [filter, setFilter] = useState('all'); // all, wins, losses
   const [wsConnected, setWsConnected] = useState(false);
+  const wsRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
+  const pingIntervalRef = useRef(null);
+
+  const setupWebSocket = useCallback(() => {
+    // Clear any existing reconnect timeout
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+
+    // Don't reconnect if already connecting or connected
+    if (wsRef.current && (wsRef.current.readyState === WebSocket.CONNECTING || wsRef.current.readyState === WebSocket.OPEN)) {
+      return;
+    }
+
+    try {
+      const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsHost = process.env.REACT_APP_API_URL 
+        ? process.env.REACT_APP_API_URL.replace('http://', '').replace('https://', '')
+        : window.location.host.replace(':3000', ':8000');
+      
+      const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/bets`);
+      wsRef.current = ws;
+      
+      ws.onopen = () => {
+        console.log('WebSocket connected for bet history');
+        setWsConnected(true);
+        // Clear any pending reconnect
+        if (reconnectTimeoutRef.current) {
+          clearTimeout(reconnectTimeoutRef.current);
+          reconnectTimeoutRef.current = null;
+        }
+        // Send ping every 30 seconds to keep connection alive
+        pingIntervalRef.current = setInterval(() => {
+          if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+            wsRef.current.send('ping');
+          }
+        }, 30000);
+      };
+      
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          
+          if (data.type === 'new_bet') {
+            // Add new bet to the beginning of the list
+            setBets(prevBets => [data.bet, ...prevBets]);
+            setTotalBets(prev => prev + 1);
+          }
+        } catch (error) {
+          console.error('WebSocket message error:', error);
+        }
+      };
+      
+      ws.onerror = (error) => {
+        console.warn('WebSocket connection error (bet history will still work):', error);
+        setWsConnected(false);
+      };
+      
+      ws.onclose = (event) => {
+        console.log('WebSocket disconnected, will reconnect...', event.code, event.reason);
+        setWsConnected(false);
+        if (pingIntervalRef.current) {
+          clearInterval(pingIntervalRef.current);
+          pingIntervalRef.current = null;
+        }
+        wsRef.current = null;
+        
+        // Only reconnect if it wasn't a manual close (code 1000)
+        if (event.code !== 1000) {
+          // Exponential backoff: 1s, 2s, 4s, max 10s
+          const delay = Math.min(10000, 1000 * Math.pow(2, 0));
+          reconnectTimeoutRef.current = setTimeout(() => {
+            setupWebSocket();
+          }, delay);
+        }
+      };
+    } catch (error) {
+      console.warn('Failed to initialize WebSocket (bet history will still work):', error);
+      setWsConnected(false);
+      // Retry connection after delay
+      reconnectTimeoutRef.current = setTimeout(() => {
+        setupWebSocket();
+      }, 3000);
+    }
+  }, []);
 
   useEffect(() => {
+    // Load bets first (don't wait for WebSocket)
     loadBets();
     
-    // Setup WebSocket connection
-    const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsHost = process.env.REACT_APP_API_URL 
-      ? process.env.REACT_APP_API_URL.replace('http://', '').replace('https://', '')
-      : window.location.host.replace(':3000', ':8000');
-    const ws = new WebSocket(`${wsProtocol}//${wsHost}/ws/bets`);
-    
-    ws.onopen = () => {
-      console.log('WebSocket connected');
-      setWsConnected(true);
-      // Send ping every 30 seconds to keep connection alive
-      const pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send('ping');
-        }
-      }, 30000);
-      ws.pingInterval = pingInterval;
-    };
-    
-    ws.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        
-        if (data.type === 'new_bet') {
-          // Add new bet to the beginning of the list
-          setBets(prevBets => [data.bet, ...prevBets]);
-          setTotalBets(prev => prev + 1);
-        }
-      } catch (error) {
-        console.error('WebSocket message error:', error);
-      }
-    };
-    
-    ws.onerror = (error) => {
-      console.error('WebSocket error:', error);
-    };
-    
-    ws.onclose = () => {
-      console.log('WebSocket disconnected');
-      setWsConnected(false);
-      if (ws.pingInterval) {
-        clearInterval(ws.pingInterval);
-      }
-    };
+    // Setup WebSocket connection (non-blocking, optional for real-time updates)
+    setupWebSocket();
     
     // Cleanup on unmount
     return () => {
-      if (ws.pingInterval) {
-        clearInterval(ws.pingInterval);
+      if (pingIntervalRef.current) {
+        clearInterval(pingIntervalRef.current);
+        pingIntervalRef.current = null;
       }
-      ws.close();
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (wsRef.current) {
+        wsRef.current.close(1000); // Manual close
+        wsRef.current = null;
+      }
     };
-  }, []);
+  }, [setupWebSocket]);
 
   const loadBets = async () => {
     try {
@@ -100,18 +156,46 @@ function AllBetsHistory() {
   };
 
   const formatDate = (dateString) => {
-    const date = new Date(dateString);
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Invalid Date';
+      return date.toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    } catch (error) {
+      return 'Invalid Date';
+    }
   };
 
   const truncateAddress = (address) => {
-    if (!address) return 'N/A';
+    if (!address || typeof address !== 'string' || address.length < 14) return address || 'N/A';
     return `${address.slice(0, 8)}...${address.slice(-6)}`;
+  };
+
+  const truncateTxid = (txid) => {
+    if (!txid || typeof txid !== 'string') return 'N/A';
+    if (txid.length <= 16) return txid;
+    return `${txid.slice(0, 8)}...${txid.slice(-8)}`;
+  };
+
+  const getMempoolUrl = (txid) => {
+    if (!txid) return null;
+    // Check if we're on testnet or mainnet based on API URL or default to testnet
+    const apiUrl = process.env.REACT_APP_API_URL || '';
+    const isTestnet = apiUrl.includes('testnet') || apiUrl.includes('localhost') || !apiUrl;
+    const baseUrl = isTestnet ? 'https://mempool.space/testnet' : 'https://mempool.space';
+    return `${baseUrl}/tx/${txid}`;
+  };
+
+  const handleTxClick = (txid) => {
+    const url = getMempoolUrl(txid);
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
   };
 
   const copyToClipboard = (text) => {
@@ -161,6 +245,10 @@ function AllBetsHistory() {
 
   return (
     <div className="all-bets-history slide-in">
+      <button className="btn-back" onClick={() => navigate('/')}>
+        <span className="back-arrow">←</span>
+        <span>Back to Home</span>
+      </button>
       <div className="history-header">
         <h2>🎲 All Bets History</h2>
         <p className="history-subtitle">
@@ -227,22 +315,32 @@ function AllBetsHistory() {
                   <th>Roll</th>
                   <th>Result</th>
                   <th>Profit</th>
+                  <th>Deposit TX</th>
+                  <th>Payout TX</th>
+                  <th>Server Seed</th>
                   <th>Date</th>
                 </tr>
               </thead>
               <tbody>
                 {currentBets.map((bet) => (
-                  <tr key={bet.id} className={bet.is_win ? 'bet-win' : 'bet-loss'}>
+                  <tr key={bet.bet_id || bet.bet_number || Math.random()} className={bet.is_win ? 'bet-win' : 'bet-loss'}>
                     <td>
-                      <span className="bet-id">#{bet.id}</span>
+                      <span 
+                        className="bet-id" 
+                        title={`Bet ID: ${bet.bet_id || 'N/A'}`}
+                        onClick={() => copyToClipboard(bet.bet_id || '')}
+                        style={{ cursor: 'pointer' }}
+                      >
+                        {bet.bet_id ? bet.bet_id.slice(-12) : 'N/A'}
+                      </span>
                     </td>
                     <td>
                       <span 
                         className="address-cell"
-                        onClick={() => copyToClipboard(bet.user_address)}
-                        title={`Click to copy: ${bet.user_address}`}
+                        onClick={() => copyToClipboard(bet.user_address || bet.target_address || 'N/A')}
+                        title={`Click to copy: ${bet.user_address || bet.target_address || 'N/A'}`}
                       >
-                        {truncateAddress(bet.user_address)}
+                        {truncateAddress(bet.user_address || bet.target_address)}
                       </span>
                     </td>
                     <td>
@@ -252,7 +350,7 @@ function AllBetsHistory() {
                     </td>
                     <td>
                       <span className="multiplier-cell">
-                        {bet.multiplier?.toFixed(2)}x
+                        {bet.target_multiplier?.toFixed(2)}x
                       </span>
                     </td>
                     <td>
@@ -276,8 +374,49 @@ function AllBetsHistory() {
                       </span>
                     </td>
                     <td>
+                      {bet.deposit_txid ? (
+                        <span 
+                          className="tx-link"
+                          onClick={() => handleTxClick(bet.deposit_txid)}
+                          title={`Click to view on mempool.space: ${bet.deposit_txid}`}
+                        >
+                          🔗 {truncateTxid(bet.deposit_txid)}
+                        </span>
+                      ) : (
+                        <span className="tx-na">N/A</span>
+                      )}
+                    </td>
+                    <td>
+                      {bet.payout_txid ? (
+                        <span 
+                          className="tx-link"
+                          onClick={() => handleTxClick(bet.payout_txid)}
+                          title={`Click to view on mempool.space: ${bet.payout_txid}`}
+                        >
+                          🔗 {truncateTxid(bet.payout_txid)}
+                        </span>
+                      ) : (
+                        <span className="tx-na">N/A</span>
+                      )}
+                    </td>
+                    <td>
+                      <span 
+                        className="seed-cell"
+                        onClick={() => copyToClipboard(bet.server_seed || bet.server_seed_hash || 'N/A')}
+                        title={bet.server_seed ? `Click to copy server seed: ${bet.server_seed}` : bet.server_seed_hash ? `Server seed hash: ${bet.server_seed_hash}` : 'N/A'}
+                      >
+                        {bet.server_seed && typeof bet.server_seed === 'string' ? (
+                          <span className="seed-revealed" title="Server seed revealed">🔓 {bet.server_seed.slice(0, 12)}...</span>
+                        ) : bet.server_seed_hash && typeof bet.server_seed_hash === 'string' ? (
+                          <span className="seed-hash" title="Server seed hash (seed not revealed)">🔒 {bet.server_seed_hash.slice(0, 12)}...</span>
+                        ) : (
+                          'N/A'
+                        )}
+                      </span>
+                    </td>
+                    <td>
                       <span className="date-cell">
-                        {formatDate(bet.rolled_at)}
+                        {formatDate(bet.created_at)}
                       </span>
                     </td>
                   </tr>

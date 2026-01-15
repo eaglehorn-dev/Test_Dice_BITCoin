@@ -84,6 +84,11 @@ def get_wallets_collection() -> AsyncIOMotorCollection:
     return get_database()["wallets"]
 
 
+def get_server_seeds_collection() -> AsyncIOMotorCollection:
+    """Get server seeds collection (fixed server seeds)"""
+    return get_database()["server_seeds"]
+
+
 async def create_indexes():
     """Create database indexes for optimal query performance"""
     db = get_database()
@@ -97,6 +102,7 @@ async def create_indexes():
     await db.seeds.create_index([("created_at", -1)])
     
     # Bets indexes
+    await db.bets.create_index("bet_number", unique=True)  # Incremental bet number (1, 2, 3, ...)
     await db.bets.create_index([("user_id", 1), ("created_at", -1)])
     await db.bets.create_index("status")
     await db.bets.create_index("deposit_txid", unique=True, sparse=True)
@@ -128,6 +134,10 @@ async def create_indexes():
     await db.wallets.create_index("multiplier")
     await db.wallets.create_index([("is_active", -1), ("multiplier", 1)])
     await db.wallets.create_index("network")
+    
+    # Server Seeds indexes (One seed per day)
+    await db.server_seeds.create_index("seed_date", unique=True)
+    await db.server_seeds.create_index([("seed_date", -1)])
     
     logger.info("[OK] Database indexes created")
 

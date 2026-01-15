@@ -11,10 +11,13 @@ from app.services.wallet_service import WalletService
 from app.services.treasury_service import TreasuryService
 from app.services.analytics_service import AnalyticsService
 from app.services.price_service import PriceService
+from app.services.server_seed_service import ServerSeedService
 from app.dtos.admin_dtos import (
     GenerateWalletRequest, GenerateWalletResponse,
     WalletInfo, WithdrawRequest, WithdrawResponse,
-    StatsResponse, DashboardResponse, MultiplierVolumeResponse, DailyStatsResponse
+    UpdateWalletRequest, UpdateWalletResponse, DeleteWalletResponse,
+    StatsResponse, DashboardResponse, MultiplierVolumeResponse, DailyStatsResponse,
+    CreateServerSeedRequest, CreateServerSeedResponse, ServerSeedInfo
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -24,13 +27,54 @@ async def generate_wallet(
     request: GenerateWalletRequest,
     authorized: bool = Depends(verify_admin_access)
 ):
-    """Generate a new Bitcoin wallet for a specific multiplier"""
+    """Generate a new Bitcoin wallet for a specific multiplier and address type"""
     try:
         wallet_service = WalletService()
-        wallet = await wallet_service.generate_wallet(request.multiplier)
+        wallet = await wallet_service.generate_wallet(request.multiplier, request.address_type, request.chance)
         return GenerateWalletResponse(**wallet)
     except Exception as e:
         logger.error(f"[ADMIN API] Failed to generate wallet: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@router.put("/wallet/{wallet_id}", response_model=UpdateWalletResponse)
+async def update_wallet(
+    wallet_id: str,
+    request: UpdateWalletRequest,
+    authorized: bool = Depends(verify_admin_access)
+):
+    """Update wallet properties (multiplier, label, active status)"""
+    try:
+        wallet_service = WalletService()
+        result = await wallet_service.update_wallet(
+            wallet_id,
+            multiplier=request.multiplier,
+            chance=request.chance,
+            label=request.label,
+            is_active=request.is_active
+        )
+        return UpdateWalletResponse(**result)
+    except ValueError as e:
+        logger.error(f"[ADMIN API] Wallet update validation error: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"[ADMIN API] Failed to update wallet: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@router.delete("/wallet/{wallet_id}", response_model=DeleteWalletResponse)
+async def delete_wallet(
+    wallet_id: str,
+    authorized: bool = Depends(verify_admin_access)
+):
+    """Delete a wallet (WARNING: Permanent deletion including private key)"""
+    try:
+        wallet_service = WalletService()
+        result = await wallet_service.delete_wallet(wallet_id)
+        return DeleteWalletResponse(**result)
+    except ValueError as e:
+        logger.error(f"[ADMIN API] Wallet not found: {e}")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+    except Exception as e:
+        logger.error(f"[ADMIN API] Failed to delete wallet: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 @router.get("/wallets", response_model=List[WalletInfo])
@@ -204,3 +248,77 @@ async def get_dashboard(
 async def health_check():
     """Health check endpoint (no auth required)"""
     return {"status": "healthy", "service": "admin-backend"}
+
+# Server Seed Management Routes
+@router.get("/server-seeds", response_model=List[ServerSeedInfo])
+async def get_all_server_seeds(
+    authorized: bool = Depends(verify_admin_access)
+):
+    """Get all server seeds"""
+    try:
+        seed_service = ServerSeedService()
+        seeds = await seed_service.get_all_seeds()
+        
+        return [
+            ServerSeedInfo(
+                seed_id=str(s["_id"]),
+                server_seed_hash=s["server_seed_hash"],
+                seed_date=s.get("seed_date", ""),
+                created_at=s.get("created_at"),
+                bet_count=s.get("bet_count", 0)
+            )
+            for s in seeds
+        ]
+    except Exception as e:
+        logger.error(f"[ADMIN API] Failed to get server seeds: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@router.post("/server-seed/create", response_model=CreateServerSeedResponse)
+async def create_server_seed(
+    request: CreateServerSeedRequest,
+    authorized: bool = Depends(verify_admin_access)
+):
+    """Create or update a server seed for a specific date"""
+    try:
+        seed_service = ServerSeedService()
+        # Check if seed already exists
+        existing = await seed_service.collection.find_one({"seed_date": request.seed_date})
+        seed = await seed_service.create_server_seed(request.seed_date)
+        
+        message = "Server seed updated successfully" if existing else "Server seed created successfully"
+        
+        return CreateServerSeedResponse(
+            seed_id=str(seed["_id"]),
+            server_seed_hash=seed["server_seed_hash"],
+            seed_date=seed["seed_date"],
+            message=message
+        )
+    except ValueError as e:
+        logger.error(f"[ADMIN API] Invalid date format: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        logger.error(f"[ADMIN API] Failed to create server seed: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+@router.delete("/server-seed/{seed_id}")
+async def delete_server_seed(
+    seed_id: str,
+    authorized: bool = Depends(verify_admin_access)
+):
+    """Delete a server seed (only future dates can be deleted)"""
+    try:
+        seed_service = ServerSeedService()
+        success = await seed_service.delete_seed(seed_id)
+        
+        if not success:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Server seed not found")
+        
+        return {"success": True, "message": "Server seed deleted successfully"}
+    except ValueError as e:
+        logger.error(f"[ADMIN API] Cannot delete past date seed: {e}")
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[ADMIN API] Failed to delete server seed: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))

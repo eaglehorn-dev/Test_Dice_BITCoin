@@ -25,8 +25,22 @@ export const getAllWallets = async (includeBalance = true) => {
   return response.data;
 };
 
-export const generateWallet = async (multiplier) => {
-  const response = await api.post('/admin/wallet/generate', { multiplier });
+export const generateWallet = async (multiplier, addressType = 'segwit', chance = null) => {
+  const response = await api.post('/admin/wallet/generate', { 
+    multiplier, 
+    address_type: addressType,
+    chance: chance
+  });
+  return response.data;
+};
+
+export const updateWallet = async (walletId, updates) => {
+  const response = await api.put(`/admin/wallet/${walletId}`, updates);
+  return response.data;
+};
+
+export const deleteWallet = async (walletId) => {
+  const response = await api.delete(`/admin/wallet/${walletId}`);
   return response.data;
 };
 
@@ -56,6 +70,22 @@ export const getDailyStats = async (days = 30) => {
   const response = await api.get('/admin/analytics/daily', {
     params: { days }
   });
+  return response.data;
+};
+
+// Server Seeds
+export const getAllServerSeeds = async () => {
+  const response = await api.get('/admin/server-seeds');
+  return response.data;
+};
+
+export const createServerSeed = async (seedDate) => {
+  const response = await api.post('/admin/server-seed/create', { seed_date: seedDate });
+  return response.data;
+};
+
+export const deleteServerSeed = async (seedId) => {
+  const response = await api.delete(`/admin/server-seed/${seedId}`);
   return response.data;
 };
 
