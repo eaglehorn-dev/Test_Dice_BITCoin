@@ -1,0 +1,18 @@
+<svg width="100" height="100" viewBox="0 0 100 100" xmlns="http://www.w3.org/2000/svg">
+  <!-- Dice cube with 3D perspective -->
+  <g transform="translate(50,50)">
+    <!-- Top face -->
+    <path d="M -30,-30 L 30,-30 L 30,30 L -30,30 Z" fill="#FFD700" stroke="#FFA500" stroke-width="2"/>
+    <!-- Right face -->
+    <path d="M 30,-30 L 50,-10 L 50,30 L 30,30 Z" fill="#FFA500" stroke="#FF8C00" stroke-width="2"/>
+    <!-- Left face -->
+    <path d="M -30,-30 L -10,-50 L 10,-30 Z" fill="#FF8C00" stroke="#FF7F00" stroke-width="2"/>
+    
+    <!-- Dots on visible faces (top face - 5 dots pattern) -->
+    <circle cx="-15" cy="-15" r="4" fill="#000"/>
+    <circle cx="15" cy="-15" r="4" fill="#000"/>
+    <circle cx="0" cy="0" r="4" fill="#000"/>
+    <circle cx="-15" cy="15" r="4" fill="#000"/>
+    <circle cx="15" cy="15" r="4" fill="#000"/>
+  </g>
+</svg>
