@@ -17,6 +17,12 @@ import { useWebSocket } from '@/utils/websocket';
 export default function App() {
   const SATOSHIS_PER_BTC = 100000000;
   
+  // Mounted state to prevent hydration mismatches
+  const [mounted, setMounted] = useState(false);
+  
+  // Logo image state for QR code (converted to data URL for mobile compatibility)
+  const [logoDataUrl, setLogoDataUrl] = useState(null);
+  
   // API Data State
   const [wallets, setWallets] = useState([]);
   const [houseInfo, setHouseInfo] = useState(null);
@@ -36,6 +42,7 @@ export default function App() {
   const [betAmount, setBetAmount] = useState(0.1);
   const [isDraggingBet, setIsDraggingBet] = useState(false);
   const [currency, setCurrency] = useState('BTC');
+  const [betAmountInput, setBetAmountInput] = useState('');
   const betProgressBarRef = useRef(null);
 
   // Bet limits (will be updated from API and wallet-specific ranges)
@@ -145,6 +152,42 @@ export default function App() {
     return formatBTC(betAmount);
   };
 
+  // Handle bet amount input change
+  const handleBetAmountInputChange = (e) => {
+    const value = e.target.value;
+    setBetAmountInput(value);
+    
+    // Allow empty input for typing
+    if (value === '' || value === '.') {
+      return;
+    }
+    
+    const numValue = parseFloat(value);
+    if (isNaN(numValue) || numValue < 0) {
+      return;
+    }
+    
+    let newBetAmount;
+    if (currency === 'USD') {
+      // Convert USD to BTC
+      newBetAmount = numValue / usdRate;
+    } else {
+      // Already in BTC
+      newBetAmount = numValue;
+    }
+    
+    // Clamp to min/max
+    const clamped = Math.max(minBet, Math.min(maxBet, newBetAmount));
+    setBetAmount(clamped);
+    
+    // Update input to show clamped value in current currency
+    if (currency === 'USD') {
+      setBetAmountInput((clamped * usdRate).toFixed(2));
+    } else {
+      setBetAmountInput(formatBTC(clamped));
+    }
+  };
+
   useEffect(() => {
     if (isDraggingMultiplier) {
       document.addEventListener('mousemove', handleMultiplierMouseMove);
@@ -193,6 +236,11 @@ export default function App() {
     }
   };
 
+  // Set mounted state on client
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
   // Fetch data on mount
   useEffect(() => {
     const fetchData = async () => {
@@ -212,7 +260,15 @@ export default function App() {
         
         // Set initial bet amount to middle of range
         const initialBet = (minBetBTC + maxBetBTC) / 2;
-        setBetAmount(Math.max(minBetBTC, Math.min(maxBetBTC, initialBet)));
+        const clampedInitialBet = Math.max(minBetBTC, Math.min(maxBetBTC, initialBet));
+        setBetAmount(clampedInitialBet);
+        
+        // Initialize input value
+        if (currency === 'USD') {
+          setBetAmountInput((clampedInitialBet * usdRate).toFixed(2));
+        } else {
+          setBetAmountInput(formatBTC(clampedInitialBet));
+        }
         
         // Fetch wallets
         const walletsData = await getAllWallets();
@@ -279,7 +335,72 @@ export default function App() {
     };
 
     fetchData();
+    
+    // Convert SVG logo to data URL for better mobile Safari compatibility
+    const convertSvgToDataUrl = async () => {
+      try {
+        const response = await fetch('/assets/dice-bitcoin.svg');
+        if (!response.ok) {
+          throw new Error('Failed to fetch SVG');
+        }
+        const svgText = await response.text();
+        
+        // Encode SVG to base64 data URL (works better on mobile Safari)
+        const base64Svg = btoa(unescape(encodeURIComponent(svgText)));
+        const svgDataUrl = `data:image/svg+xml;base64,${base64Svg}`;
+        
+        // For better mobile Safari support, convert to PNG via canvas
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        
+        img.onload = () => {
+          try {
+            const canvas = document.createElement('canvas');
+            canvas.width = 200;
+            canvas.height = 200;
+            const ctx = canvas.getContext('2d');
+            
+            // Draw white background for better QR code contrast
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw the SVG image
+            ctx.drawImage(img, 0, 0, 200, 200);
+            
+            // Convert to PNG data URL
+            const pngDataUrl = canvas.toDataURL('image/png');
+            setLogoDataUrl(pngDataUrl);
+          } catch (canvasError) {
+            // Fallback to SVG data URL if canvas fails
+            console.warn('Canvas conversion failed, using SVG data URL:', canvasError);
+            setLogoDataUrl(svgDataUrl);
+          }
+        };
+        
+        img.onerror = () => {
+          // Fallback to SVG data URL
+          setLogoDataUrl(svgDataUrl);
+        };
+        
+        img.src = svgDataUrl;
+      } catch (error) {
+        console.error('Error converting SVG to data URL:', error);
+        // Fallback to SVG path
+        setLogoDataUrl('/assets/dice-bitcoin.svg');
+      }
+    };
+    
+    convertSvgToDataUrl();
   }, []);
+
+  // Update input value when betAmount or currency changes
+  useEffect(() => {
+    if (currency === 'USD') {
+      setBetAmountInput((betAmount * usdRate).toFixed(2));
+    } else {
+      setBetAmountInput(formatBTC(betAmount));
+    }
+  }, [betAmount, currency]);
 
   // Update wallet address and bet limits when selected index changes
   useEffect(() => {
@@ -382,12 +503,13 @@ export default function App() {
     setWsConnected(isConnected);
   }, [isConnected]);
 
-  if (loading) {
+  // Prevent hydration mismatch by showing loading state until mounted
+  if (!mounted || loading) {
     return (
-      <div className="min-h-screen bg-[url('/bg.png')] bg-cover bg-center bg-no-repeat flex items-center justify-center">
+      <div className="min-h-screen bg-[url('/bg.png')] bg-cover bg-center bg-no-repeat flex items-center justify-center" suppressHydrationWarning>
         <div className="text-center">
-          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4"></div>
-          <p className="text-white text-lg">Loading game data...</p>
+          <div className="inline-block animate-spin rounded-full h-12 w-12 border-b-2 border-white mb-4" suppressHydrationWarning></div>
+          <p className="text-white text-lg" suppressHydrationWarning>Loading game data...</p>
         </div>
       </div>
     );
@@ -422,12 +544,12 @@ export default function App() {
   }
 
   return (
-    <div className="">
+    <div className="" suppressHydrationWarning>
       <Navbar />
 
       <div className="bg-[url('/bg.png')] bg-cover bg-center bg-no-repeat">
         <div className="pt-4 pb-20 max-w-[1250px] mx-auto w-full z-20 px-4">
-          <div className='rounded-[5px] bg-[rgba(0,0,0,0.20)] p-3 mb-5'>
+          <div className='rounded-[5px] bg-[rgba(0,0,0,0.80)] p-3 mb-5'>
             <div className="text-center mb-4">
               <p className="text-[#FFF] font-inter md:text-[23px] tracking-[0.0444em]">
                 Select Your Odds &amp; Win Multiplier
@@ -436,15 +558,15 @@ export default function App() {
             <div className='hidden md:block'>
 
 
-              <div className="flex justify-between items-center bg-white/50 backdrop-blur-sm rounded-lg p-3 mb-4 gap-2 flex-wrap  ">
+              <div className="flex justify-between items-center bg-black/50 backdrop-blur-sm rounded-lg p-3 mb-4 gap-2 flex-wrap border border-[#FF8C00]/20">
                 {multipliers.map((mult, i) => (
                   <button
                     key={i}
                     onClick={() => setSelectedIndex(i)}
-                    className={`flex flex-col items-center justify-center px-3 py-2 rounded min-w-[80px] transition-all ${selectedIndex === i ? 'bg-white shadow-md scale-105' : 'hover:bg-white/50'}`}
+                    className={`flex flex-col items-center justify-center px-3 py-2 rounded min-w-[80px] transition-all ${selectedIndex === i ? 'bg-[#FF8C00] shadow-md scale-105 text-white' : 'hover:bg-[#FF8C00]/30 text-white'}`}
                   >
-                    <p className="text-black text-xs font-medium mb-1">Multiplier</p>
-                    <p className="text-black text-xl font-bold">{mult.label}</p>
+                    <p className="text-xs font-medium mb-1">Multiplier</p>
+                    <p className="text-xl font-bold">{mult.label}</p>
                   </button>
                 ))}
               </div>
@@ -454,22 +576,22 @@ export default function App() {
               <div
                 ref={multiplierProgressBarRef}
                 onMouseDown={handleMultiplierMouseDown}
-                className="relative rounded border border-gray-300 bg-gray-50 shadow-inner w-full h-5 overflow-hidden cursor-pointer"
+                className="relative rounded border border-[#FF8C00]/30 bg-black/50 shadow-inner w-full h-5 overflow-hidden cursor-pointer"
               >
                 <div
                   className="absolute top-0 left-0 h-full rounded-l transition-all duration-150"
                   style={{
                     width: `${getMultiplierProgressPosition()}%`,
-                    background: 'linear-gradient(90deg, #8360C3 0%, #2EBF91 100%)'
+                    background: 'linear-gradient(90deg, #FF8C00 0%, #FFA500 100%)'
                   }}
                 />
                 <div
                   className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 transition-all duration-150"
                   style={{ left: `${getMultiplierProgressPosition()}%` }}
                 >
-                  <div className="w-9 h-7 bg-white rounded shadow-lg border border-gray-200 flex items-center justify-center gap-0.5 cursor-grab active:cursor-grabbing">
-                    <div className="w-px h-4 bg-gray-300"></div>
-                    <div className="w-px h-4 bg-gray-300"></div>
+                  <div className="w-9 h-7 bg-[#FF8C00] rounded shadow-lg border border-[#FFA500] flex items-center justify-center gap-0.5 cursor-grab active:cursor-grabbing">
+                    <div className="w-px h-4 bg-white/50"></div>
+                    <div className="w-px h-4 bg-white/50"></div>
                   </div>
                 </div>
               </div>
@@ -482,8 +604,8 @@ export default function App() {
                   onClick={() => setSelectedIndex(i)}
                   className="flex flex-col items-center justify-center w-20 px-1 py-1 rounded-full text-white font-medium text-sm  transition-all hover:scale-105"
                   style={{
-                    background: 'linear-gradient(135deg, #7B5FC7 0%, #34A89A 100%)',
-                    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)'
+                    background: 'linear-gradient(135deg, #FF8C00 0%, #FFA500 100%)',
+                    boxShadow: '0 2px 8px rgba(255, 140, 0, 0.3)'
                   }}
                 >
                   <div className="text-xs opacity-90">Chance</div>
@@ -502,24 +624,39 @@ export default function App() {
               </div>
 
               <div className="pb-3">
-                <div className="flex py-2 px-2 justify-between items-center rounded-[5px] bg-[rgba(255,255,255,0.15)] w-full">
-                  <p className="text-[#FFF] font-arial text-lg">{getDisplayValue()}</p>
+                <div className="flex py-2 px-2 justify-between items-center rounded-[5px] bg-black/50 w-full border border-[#FF8C00]/20">
+                  <input
+                    type="text"
+                    value={betAmountInput}
+                    onChange={handleBetAmountInputChange}
+                    onBlur={() => {
+                      // Ensure input is formatted correctly on blur
+                      if (currency === 'USD') {
+                        setBetAmountInput((betAmount * usdRate).toFixed(2));
+                      } else {
+                        setBetAmountInput(formatBTC(betAmount));
+                      }
+                    }}
+                    className="bg-transparent border-none outline-none text-[#FFF] font-arial text-lg flex-1 text-left"
+                    style={{ width: 'auto', minWidth: '60px' }}
+                    placeholder="0.00"
+                  />
                   <div className="relative">
-                    <div className="flex rounded-md overflow-hidden" style={{ background: '#8EAAAF' }}>
+                    <div className="flex rounded-md overflow-hidden" style={{ background: '#333' }}>
                       <button
                         onClick={() => setCurrency('BTC')}
-                        className="px-3 py-2 text-xs font-medium text-black transition-all"
+                        className="px-3 py-2 text-xs font-medium text-white transition-all"
                         style={{
-                          background: currency === 'BTC' ? '#BBED90' : 'transparent'
+                          background: currency === 'BTC' ? '#FF8C00' : 'transparent'
                         }}
                       >
                         BTC
                       </button>
                       <button
                         onClick={() => setCurrency('USD')}
-                        className="px-3 py-2 text-xs font-medium text-black transition-all"
+                        className="px-3 py-2 text-xs font-medium text-white transition-all"
                         style={{
-                          background: currency === 'USD' ? '#BBED90' : 'transparent'
+                          background: currency === 'USD' ? '#FF8C00' : 'transparent'
                         }}
                       >
                         USD
@@ -529,29 +666,46 @@ export default function App() {
                 </div>
                 <div className="text-center pt-1.5">
                   <p className="text-[#FFF] font-inter text-[15px] leading-6">
-                    ${(betAmount * usdRate).toFixed(2)} USD
+                    {currency === 'BTC' ? `$${(betAmount * usdRate).toFixed(2)} USD` : `${formatBTC(betAmount)} BTC`}
                   </p>
                 </div>
               </div>
+
+              {/* Profit Calculator */}
+              {selectedWallet && (
+                <div className="pb-3">
+                  <div className="rounded-[5px] bg-black/50 border border-[#FF8C00]/20 p-3">
+                    <p className="text-[#FFF] font-inter text-xs mb-2 text-center opacity-75">Potential Profit (if you win)</p>
+                    <div className="text-center">
+                      <p className="text-[#FF8C00] font-inter text-lg font-semibold mb-1">
+                        {((betAmount * (selectedWallet.multiplier - 1)).toFixed(6))} BTC
+                      </p>
+                      <p className="text-[#FFF] font-inter text-sm opacity-75">
+                        ${((betAmount * (selectedWallet.multiplier - 1)) * usdRate).toFixed(2)} USD
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Bet slider */}
               <div className="pb-2 relative">
                 <div
                   ref={betProgressBarRef}
                   onMouseDown={handleBetMouseDown}
-                  className="relative flex flex-col justify-center items-start rounded border border-[#D3D3D3] bg-[#FAFAFA] shadow-[0_1px_1px_#F0F0F0_inset,0_3px_6px_-5px_#BBB] w-full h-[18px] cursor-pointer overflow-hidden"
+                  className="relative flex flex-col justify-center items-start rounded border border-[#FF8C00]/30 bg-black/50 shadow-inner w-full h-[18px] cursor-pointer overflow-hidden"
                 >
                   <div
-                    className="absolute top-0 left-0 h-full bg-[#4B5152] transition-all duration-150"
+                    className="absolute top-0 left-0 h-full bg-[#FF8C00] transition-all duration-150"
                     style={{ width: `${getBetProgressPosition()}%` }}
                   />
                   <div
                     className="absolute top-0 transition-all duration-150"
                     style={{ left: `${getBetProgressPosition()}%`, transform: 'translateX(-50%)' }}
                   >
-                    <div className="shrink-0 shadow-[0_0_1px_1px_#FFF_inset,0_1px_7px_1px_#EBEBEB_inset] w-[34px] h-7 relative cursor-grab active:cursor-grabbing">
-                      <div className="bg-[#E8E7E6] w-px h-3.5 absolute left-[15px] top-[7px]"></div>
-                      <div className="bg-[#E8E7E6] w-px h-3.5 absolute left-[18px] top-[7px]"></div>
+                    <div className="shrink-0 shadow-[0_0_1px_1px_#FF8C00_inset] w-[34px] h-7 relative cursor-grab active:cursor-grabbing bg-[#FF8C00] border border-[#FFA500]">
+                      <div className="bg-white/50 w-px h-3.5 absolute left-[15px] top-[7px]"></div>
+                      <div className="bg-white/50 w-px h-3.5 absolute left-[18px] top-[7px]"></div>
                     </div>
                   </div>
                 </div>
@@ -559,28 +713,28 @@ export default function App() {
 
               {/* Min / 1/2 / x2 / Max buttons */}
               <div className="pt-4">
-                <div className="flex justify-between items-center rounded-[5px] bg-[#FFF] w-full text-[#000] font-inter text-[15px]">
+                <div className="flex justify-between items-center rounded-[5px] bg-black/50 w-full text-white font-inter text-[15px] border border-[#FF8C00]/20">
                   <button
                     onClick={() => handleBetChange(minBet)}
-                    className="p-2 rounded-[5px] w-[25%] text-center hover:bg-gray-100 transition"
+                    className="p-2 rounded-[5px] w-[25%] text-center hover:bg-[#FF8C00]/30 transition"
                   >
                     Min
                   </button>
                   <button
                     onClick={() => handleBetChange(betAmount / 2)}
-                    className="py-2 px-2 border-x border-[#000] w-[25%] text-center text-sm hover:bg-gray-100 transition"
+                    className="py-2 px-2 border-x border-[#FF8C00]/30 w-[25%] text-center text-sm hover:bg-[#FF8C00]/30 transition"
                   >
                     1/2
                   </button>
                   <button
                     onClick={() => handleBetChange(betAmount * 2)}
-                    className="py-2 px-2 border-r border-[#000] w-[25%] text-center hover:bg-gray-100 transition"
+                    className="py-2 px-2 border-r border-[#FF8C00]/30 w-[25%] text-center hover:bg-[#FF8C00]/30 transition"
                   >
                     x2
                   </button>
                   <button
                     onClick={() => handleBetChange(maxBet)}
-                    className="p-2 rounded-[5px] w-[25%] text-center hover:bg-gray-100 transition"
+                    className="p-2 rounded-[5px] w-[25%] text-center hover:bg-[#FF8C00]/30 transition"
                   >
                     Max
                   </button>
@@ -591,23 +745,23 @@ export default function App() {
               <div className="mt-4">
                 <p className="text-[#FFF] font-inter text-[23px] tracking-[0.0437em] text-center mb-2">Game Info</p>
                 <div className="grid grid-cols-2 gap-1.5 mb-1.5">
-                  <div className="py-1.5 px-2 bg-[#4B5152] rounded-[5px] text-center">
+                  <div className="py-1.5 px-2 bg-black/50 rounded-[5px] text-center border border-[#FF8C00]/20">
                     <p className="text-[#FFF] font-inter text-[11px] leading-3">Roll Lower than:</p>
                     <p className="text-[#FFF] font-inter text-[11px] leading-3">{calculateRollLowerThan()}</p>
                   </div>
-                  <div className="py-1.5 px-2 bg-[#4B5152] rounded-[5px] text-center">
+                  <div className="py-1.5 px-2 bg-black/50 rounded-[5px] text-center border border-[#FF8C00]/20">
                     <p className="text-[#FFF] font-inter text-[11px] leading-3">Maximum Roll</p>
                     <p className="text-[#FFF] font-inter text-[11px] leading-3">65535</p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-1.5">
-                  <div className="py-1.5 px-2 bg-[#8EAAAF] rounded-[5px] text-center">
+                  <div className="py-1.5 px-2 bg-black/50 rounded-[5px] text-center border border-[#FF8C00]/20">
                     <p className="text-[#FFF] font-inter text-[11px] leading-3">Min Bet</p>
-                    <p className="text-[#FFF] font-inter text-[11px] leading-3">{minBet.toFixed(6)} BTC</p>
+                    <p className="text-[#FF8C00] font-inter text-[11px] leading-3">{minBet.toFixed(6)} BTC</p>
                   </div>
-                  <div className="py-1.5 px-2 bg-[#8EAAAF] rounded-[5px] text-center">
+                  <div className="py-1.5 px-2 bg-black/50 rounded-[5px] text-center border border-[#FF8C00]/20">
                     <p className="text-[#FFF] font-inter text-[11px] leading-3">Max Bet</p>
-                    <p className="text-[#FFF] font-inter text-[11px] leading-3">{maxBet.toFixed(6)} BTC</p>
+                    <p className="text-[#FF8C00] font-inter text-[11px] leading-3">{maxBet.toFixed(6)} BTC</p>
                   </div>
                 </div>
               </div>
@@ -627,7 +781,7 @@ export default function App() {
                             </div>
                           ) : (
                             <div className="p-0.5">
-                              <div className="p-2 bg-[#222] rounded-[5px] shadow-[0_1px_3px_0_rgba(34,34,34,0.30)] w-10 flex justify-center">
+                              <div className="p-2 bg-black/50 rounded-[5px] shadow-[0_1px_3px_0_rgba(255,140,0,0.30)] w-10 flex justify-center border border-[#FF8C00]/20">
                                 <p className="text-[#FFF] font-inter text-[40px] leading-8">{char}</p>
                               </div>
                             </div>
@@ -635,7 +789,7 @@ export default function App() {
                         </React.Fragment>
                       ))
                     ) : (
-                      <div className="p-2 bg-[#222] rounded-[5px] shadow-[0_1px_3px_0_rgba(34,34,34,0.30)]">
+                      <div className="p-2 bg-black/50 rounded-[5px] shadow-[0_1px_3px_0_rgba(255,140,0,0.30)] border border-[#FF8C00]/20">
                         <p className="text-[#FFF] font-inter text-[20px]">Loading...</p>
                       </div>
                     )}
@@ -656,47 +810,47 @@ export default function App() {
                   <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
                     {recentBets.length > 0 ? (
                       recentBets.map((bet, idx) => (
-                        <div key={idx} className="flex justify-between items-center rounded-[5px] bg-[#FFF] p-2 h-[68px]">
+                        <div key={idx} className="flex justify-between items-center rounded-[5px] bg-black/50 p-2 h-[68px] border border-[#FF8C00]/20">
                           <div className="flex flex-col items-center w-[70px]">
-                            <div className="w-5 h-5 relative mb-0.5">
+                            <div className="w-5 h-5 relative mb-0.5 flex items-center justify-center">
                               <svg width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
                                 {bet.result === 'win' ? (
-                                  <path d="M10 0C4.48 0 0 4.48 0 10C0 15.52 4.48 20 10 20C15.52 20 20 15.52 20 10C20 4.48 15.52 0 10 0ZM8 15L3 10L4.41 8.59L8 12.17L15.59 4.58L17 6L8 15Z" fill="#2EBF91" />
+                                  <path d="M10 0C4.48 0 0 4.48 0 10C0 15.52 4.48 20 10 20C15.52 20 20 15.52 20 10C20 4.48 15.52 0 10 0ZM8 15L3 10L4.41 8.59L8 12.17L15.59 4.58L17 6L8 15Z" fill="#FF8C00" />
                                 ) : (
-                                  <path d="M10 0C4.47 0 0 4.47 0 10C0 15.53 4.47 20 10 20C15.53 20 20 15.53 20 10C20 4.47 15.53 0 10 0ZM15 13.59L13.59 15L10 11.41L6.41 15L5 13.59L8.59 10L5 6.41L6.41 5L10 8.59L13.59 5L15 6.41L11.41 10L15 13.59Z" fill="#3C3C3C" />
+                                  <path d="M10 0C4.47 0 0 4.47 0 10C0 15.53 4.47 20 10 20C15.53 20 20 15.53 20 10C20 4.47 15.53 0 10 0ZM15 13.59L13.59 15L10 11.41L6.41 15L5 13.59L8.59 10L5 6.41L6.41 5L10 8.59L13.59 5L15 6.41L11.41 10L15 13.59Z" fill="#FF4444" stroke="#FF6666" strokeWidth="0.5" />
                                 )}
                               </svg>
                             </div>
-                            <p className="text-[#000] font-inter text-[13px]">{bet.result === 'win' ? "Win" : "Lose"}</p>
+                            <p className="text-white font-inter text-[13px]">{bet.result === 'win' ? "Win" : "Lose"}</p>
                           </div>
 
                           <div className="text-center flex-1 px-2">
-                            <p className="text-[#000] font-inter text-[15px]">Bet Amount</p>
-                            <p className={`${bet.result === 'win' ? "text-[#008000]" : "text-[#F00]"} font-inter text-sm mt-0.5`}>
+                            <p className="text-white font-inter text-[15px]">Bet Amount</p>
+                            <p className="text-[#FF8C00] font-inter text-sm mt-0.5">
                               {bet.betAmount} BTC
                             </p>
-                            <p className="text-[#000] font-inter text-xs">
+                            <p className="text-white/70 font-inter text-xs">
                               (${(bet.betAmountSat / SATOSHIS_PER_BTC * usdRate).toFixed(2)} USD)
                             </p>
                           </div>
 
                           <div className="text-center flex-1 px-2">
-                            <p className="text-[#000] font-inter text-[15px]">Payout</p>
-                            <p className={`${bet.result === 'win' ? "text-[#008000]" : "text-[#F00]"} font-inter text-sm mt-0.5`}>
+                            <p className="text-white font-inter text-[15px]">Payout</p>
+                            <p className={`${bet.result === 'win' ? "text-[#FF8C00]" : "text-white/50"} font-inter text-sm mt-0.5`}>
                               {bet.payoutAmount} BTC
                             </p>
-                            <p className="text-[#000] font-inter text-xs">
+                            <p className="text-white/70 font-inter text-xs">
                               (${(bet.payoutAmountSat / SATOSHIS_PER_BTC * usdRate).toFixed(2)} USD)
                             </p>
                           </div>
 
                           <div className="text-center w-[70px]">
-                            <p className="text-[#000] font-inter text-[15px]">Bet</p>
-                            <p className="text-[#000] font-inter text-xs mt-0.5">{bet.bet}</p>
+                            <p className="text-white font-inter text-[15px]">Bet</p>
+                            <p className="text-white font-inter text-xs mt-0.5">{bet.bet}</p>
                           </div>
                           <div className="text-center w-[70px]">
-                            <p className="text-[#000] font-inter text-base">Roll</p>
-                            <p className="text-[#000] font-inter text-xs mt-0.5">{bet.roll}</p>
+                            <p className="text-white font-inter text-base">Roll</p>
+                            <p className="text-white font-inter text-xs mt-0.5">{bet.roll}</p>
                           </div>
                         </div>
                       ))
@@ -713,17 +867,33 @@ export default function App() {
             </div>
 
             {/* Right Panel — Deposit Address */}
-            <div className="rounded-[5px] bg-[rgba(0,0,0,0.20)] p-3">
+            <div className="rounded-[5px] bg-[rgba(0,0,0,0.80)] p-3 border border-[#FF8C00]/20">
               <div className="text-center mb-3">
-                <p className="text-[#FFF] font-inter text-[23px] tracking-[0.0437em]">Send BTC to Play</p>
+                <p className="text-[#FFF] font-inter text-[23px] tracking-[0.0437em]">Send <span className="text-[#FF8C00]">BTC</span> to Play</p>
               </div>
               <div className="flex justify-center mb-3">
                 {walletAddress ? (
-                  <QRCode 
-                    size={250} 
-                    logoImage='/dice.svg' 
-                    value={`bitcoin:${walletAddress}?amount=${betAmount.toFixed(8)}`} 
-                  />
+                  logoDataUrl ? (
+                    <QRCode 
+                      size={250} 
+                      logoImage={logoDataUrl}
+                      logoWidth={120}
+                      logoHeight={120}
+                      logoOpacity={0.8}
+                      removeQrCodeBehindLogo={true}
+                      value={`bitcoin:${walletAddress}?amount=${betAmount.toFixed(8)}`} 
+                    />
+                  ) : (
+                    <QRCode 
+                      size={250} 
+                      logoImage='/assets/dice-bitcoin.svg'
+                      logoWidth={120}
+                      logoHeight={120}
+                      logoOpacity={0.8}
+                      removeQrCodeBehindLogo={true}
+                      value={`bitcoin:${walletAddress}?amount=${betAmount.toFixed(8)}`} 
+                    />
+                  )
                 ) : (
                   <div className="w-[250px] h-[250px] bg-gray-200 flex items-center justify-center rounded">
                     <p className="text-gray-500">Loading...</p>
@@ -745,7 +915,7 @@ export default function App() {
                 </button>
               </div>
               <div className="px-2">
-                <div className="p-2 text-center rounded-[5px] bg-[#222] shadow-[0_1px_3px_0_rgba(34,34,34,0.30)]">
+                <div className="p-2 text-center rounded-[5px] bg-black/50 shadow-[0_1px_3px_0_rgba(255,140,0,0.30)] border border-[#FF8C00]/20">
                   <p className="text-[#FFF] font-inter text-[11px]">Open in your wallet</p>
                 </div>
               </div>

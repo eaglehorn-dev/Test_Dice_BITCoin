@@ -1,0 +1,15 @@
+@import "tailwindcss";
+
+:root {
+  --bg-primary: #000000;      /* Black background */
+  --text-primary: #FFFFFF;    /* White text */
+  --accent-orange: #FF8C00;   /* Orange accent (Bitcoin orange) */
+  --accent-orange-light: #FFA500;
+  --accent-orange-dark: #FF7F00;
+}
+
+body {
+  font-family: Arial, Helvetica, sans-serif;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+}
